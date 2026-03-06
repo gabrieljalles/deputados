@@ -18,10 +18,14 @@ def carregar_id_nomes():
         print(f" Aviso: Não foi possível carregar nomes dos deputados: {e}")
     return mapeamento
 
-def plotar_gastos_deputados(dados_despesas):
+def plotar_gastos_deputados(dados_despesas, ordenar_por='valor'):
     """
     Gera um gráfico de barras interativo com todos os deputados,
     incluindo um slider para navegar pelo eixo X e linhas de média/DP.
+    
+    Args:
+        dados_despesas: Dados das despesas.
+        ordenar_por: 'nome' para alfabética, 'valor' para maior valor (default).
     """
     gastos_por_id = {}
     nomes_mapeados = carregar_id_nomes()
@@ -49,11 +53,27 @@ def plotar_gastos_deputados(dados_despesas):
         nome = nomes_mapeados.get(id_dep, f"ID {id_dep}")
         lista_final.append((nome, valor))
     
-    # Ordenar por ORDEM ALFABÉTICA do Nome
-    lista_final.sort(key=lambda x: x[0])
+    # Ordenação
+    if ordenar_por == 'nome':
+        lista_final.sort(key=lambda x: x[0])
+    else:
+        # Ordenar por MAIOR VALOR
+        lista_final.sort(key=lambda x: x[1], reverse=True)
     
     labels = [item[0] for item in lista_final]
     valores = [item[1] for item in lista_final]
+    
+    # Definição de cores (Ouro, Prata, Bronze para os 3 primeiros)
+    cores = []
+    for i in range(len(lista_final)):
+        if i == 0:
+            cores.append('#FFD700')    # Gold
+        elif i == 1:
+            cores.append('#C0C0C0')    # Silver
+        elif i == 2:
+            cores.append('#CD7F32')    # Bronze
+        else:
+            cores.append('skyblue')
     
     # Cálculos estatísticos globais (continuam iguais, pois os valores são os mesmos)
     media = statistics.mean(valores)
@@ -66,8 +86,8 @@ def plotar_gastos_deputados(dados_despesas):
     # Janela inicial de visualização (ex: primeiros 20 deputados)
     visivel_inicial = 20
     
-    # Barras do gráfico
-    barras = ax.bar(labels, valores, alpha=0.6, label='Gasto por Deputado', color='skyblue')
+    # Barras do gráfico com as cores definidas
+    barras = ax.bar(labels, valores, alpha=0.8, color=cores, label='Gasto por Deputado')
     
     # Linhas de referência (Média e DP)
     ax.axhline(media, color='red', linestyle='--', label=f'Média: R$ {media:,.2f}')
@@ -166,6 +186,40 @@ def calcular_soma_total_valor_liquido(dados_despesas):
     print(f"\n Soma total de valorLiquido: R$ {soma_total:,.2f}")
             
     return soma_total
+
+def gastos_por_tipo(dados_despesas):
+    """
+    Retorna o total de gastos classificados por tipo de despesa.
+    """
+    gastos_tipo = {}
+    
+    # Normalizar a estrutura das despesas para obter uma lista única
+    if isinstance(dados_despesas, dict) and 'dados' not in dados_despesas:
+        # Se for um dicionário mapeado por ID de deputado {id: {dados: [...]}}
+        todas_despesas = []
+        for conteudo in dados_despesas.values():
+            if isinstance(conteudo, dict) and 'dados' in conteudo:
+                todas_despesas.extend(conteudo['dados'])
+            elif isinstance(conteudo, list):
+                todas_despesas.extend(conteudo)
+    else:
+        # Se for a lista direta ou dicionário com chave 'dados'
+        todas_despesas = dados_despesas.get('dados', []) if isinstance(dados_despesas, dict) else dados_despesas
+
+    for d in todas_despesas:
+        tipo = d.get('tipoDespesa', 'Outros')
+        valor = d.get('valorLiquido', 0)
+        if valor is not None:
+            gastos_tipo[tipo] = gastos_tipo.get(tipo, 0.0) + float(valor)
+        
+    # Ordena pelo maior valor
+    gastos_ordenados = dict(sorted(gastos_tipo.items(), key=lambda item: item[1], reverse=True))
+    
+    print("\n--- Gastos por Tipo de Despesa ---")
+    for tipo, total in gastos_ordenados.items():
+        print(f" {tipo}: R$ {total:,.2f}")
+        
+    return gastos_ordenados
 
 def media_por_deputado(dados_despesas):
     """

@@ -1,5 +1,5 @@
 import time
-from api_service import buscar_deputados, buscar_deputado_detalhado, buscar_todas_despesas_paginado
+from api_service import buscar_deputados, buscar_deputado_detalhado, buscar_todas_despesas_paginado, buscar_eventos, buscar_detalhe_evento
 
 def agregar_despesas_deputados(lista_ids_deputados, ids_legislaturas=None):
     """
@@ -136,3 +136,87 @@ def agregar_detalhes_deputados(dados_deputados):
     
     print(f"\nBusca de detalhes concluída! Total coletado: {len(todos_detalhes)}")
     return todos_detalhes
+
+def agregar_eventos_por_legislaturas(legislaturas_consolidado, limite_legislaturas=None):
+    """
+    Busca todos os eventos para cada legislatura, extraindo dataInicio e dataFim
+    do JSON consolidado e chamando buscar_eventos para cada uma.
+    """
+    if not legislaturas_consolidado or 'dados' not in legislaturas_consolidado:
+        print("Erro: JSON de legislaturas inválido.")
+        return None
+
+    legislaturas = legislaturas_consolidado['dados']
+
+    # Determina a chave de ID usada no arquivo consolidado
+    chave_id = 'idLegislatura' if legislaturas and 'idLegislatura' in legislaturas[0] else 'id'
+
+    # Ordena da legislatura mais recente para a mais antiga
+    legislaturas_ordenadas = sorted(legislaturas, key=lambda x: x.get(chave_id, 0), reverse=True)
+
+    if limite_legislaturas:
+        legislaturas_ordenadas = legislaturas_ordenadas[:limite_legislaturas]
+        print(f"Limite ativado: Processando as {limite_legislaturas} legislaturas mais recentes.")
+
+    print(f"Buscando eventos para {len(legislaturas_ordenadas)} legislatura(s)...")
+
+    todos_eventos = []
+
+    for leg in legislaturas_ordenadas:
+        id_leg = leg.get('idLegislatura') or leg.get('id')
+        data_inicio = leg.get('dataInicio')
+        data_fim = leg.get('dataFim')
+
+        if not data_inicio or not data_fim:
+            print(f"Legislatura {id_leg}: datas não encontradas, pulando...")
+            continue
+
+        print(f"Buscando eventos da legislatura {id_leg} ({data_inicio} a {data_fim})...")
+        resultado = buscar_eventos(data_inicio, data_fim)
+
+        if resultado and 'dados' in resultado:
+            for evento in resultado['dados']:
+                evento['idLegislatura'] = id_leg
+            todos_eventos.extend(resultado['dados'])
+            print(f"  -> {len(resultado['dados'])} evento(s) encontrado(s).")
+
+
+    print(f"\nTotal de eventos coletados: {len(todos_eventos)}")
+    return {"dados": todos_eventos}
+
+def agregar_detalhes_eventos(dados_eventos):
+    """
+    Busca os detalhes completos de cada evento listado em dados_eventos,
+    removendo IDs duplicados antes da busca. Exibe progresso e estimativa de tempo.
+    """
+    lista_crua = dados_eventos.get('dados', [])
+
+    # Remove duplicados pelo ID do evento
+    eventos_unicos = {e['id']: e for e in lista_crua if 'id' in e}.values()
+    lista_eventos = list(eventos_unicos)
+    total = len(lista_eventos)
+
+    print(f"Iniciando busca de detalhes para {total} evento(s) único(s)...")
+
+    todos_detalhes = []
+    tempo_medio_por_evento = 0.6
+
+    for i, evento in enumerate(lista_eventos, 1):
+        id_evento = evento['id']
+
+        falta = total - i
+        segundos_restantes = falta * tempo_medio_por_evento
+        minutos, segundos = divmod(int(segundos_restantes), 60)
+        tempo_str = f"{minutos}m {segundos}s" if minutos > 0 else f"{segundos}s"
+
+        print(f"[{i}/{total}] Processando evento ID: {id_evento} | Est. restante: {tempo_str}", end='\r')
+
+        detalhes = buscar_detalhe_evento(id_evento)
+
+        if detalhes and 'dados' in detalhes:
+            todos_detalhes.append(detalhes['dados'])
+
+        time.sleep(0.1)
+
+    print(f"\nBusca de detalhes de eventos concluída! Total coletado: {len(todos_detalhes)}")
+    return {"dados": todos_detalhes}

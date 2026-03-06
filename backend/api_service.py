@@ -170,3 +170,95 @@ def buscar_todas_legislaturas_consolidado(formato="json"):
     except requests.exceptions.RequestException as e:
         print(f"Erro ao baixar legislaturas consolidadas ({formato}): {e}")
         return None
+
+def buscar_eventos(data_inicio, data_fim, itens=100, ordem='ASC', ordenar_por='dataHoraInicio'):
+    """
+    Busca TODOS os eventos em um intervalo de datas, percorrendo automaticamente todas as páginas da API.
+    """
+    url = "https://dadosabertos.camara.leg.br/api/v2/eventos"
+    headers = {'accept': 'application/json'}
+    params = {
+        'dataInicio': data_inicio,
+        'dataFim': data_fim,
+        'itens': itens,
+        'ordem': ordem,
+        'ordenarPor': ordenar_por
+    }
+
+    todos_eventos = []
+
+    try:
+        response = realizar_requisicao_com_retry(url, headers=headers, params=params)
+        dados_pagina = response.json()
+        todos_eventos.extend(dados_pagina.get('dados', []))
+
+        links = dados_pagina.get('links', [])
+        proxima_url = next((link['href'] for link in links if link['rel'] == 'next'), None)
+
+        while proxima_url:
+            response = realizar_requisicao_com_retry(proxima_url, headers=headers)
+            dados_pagina = response.json()
+            todos_eventos.extend(dados_pagina.get('dados', []))
+
+            links = dados_pagina.get('links', [])
+            proxima_url = next((link['href'] for link in links if link['rel'] == 'next'), None)
+
+    except Exception as e:
+        print(f"Erro ao buscar eventos entre {data_inicio} e {data_fim}: {e}")
+        if not todos_eventos:
+            return None
+
+    return {"dados": todos_eventos}
+
+def buscar_detalhe_evento(id_evento):
+    """
+    Busca os detalhes completos de um evento específico pelo seu ID.
+    """
+    url = f"https://dadosabertos.camara.leg.br/api/v2/eventos/{id_evento}"
+    headers = {'accept': 'application/json'}
+
+    try:
+        response = realizar_requisicao_com_retry(url, headers=headers)
+        return response.json()
+    except Exception as e:
+        print(f"Erro ao buscar detalhes do evento {id_evento}: {e}")
+        return None
+
+def buscar_tipos_eventos(eventos_obrigatorios=None, eventos_nao_obrigatorios=None):
+    """
+    Consome a API de referências para obter todos os tipos de eventos e adiciona
+    a marcação de obrigatorio baseada nas listas fornecidas.
+    Regra:
+    - 1 se o ID estiver em eventos_obrigatorios
+    - 2 se o ID estiver em eventos_nao_obrigatorios
+    - 0 se não estiver em nenhuma das listas
+    """
+    url = "https://dadosabertos.camara.leg.br/api/v2/referencias/eventos/codTipoEvento"
+    headers = {'accept': 'application/json'}
+
+    # Garante que sejam listas para evitar erros de 'in'
+    obrigatorios = eventos_obrigatorios if eventos_obrigatorios else []
+    nao_obrigatorios = eventos_nao_obrigatorios if eventos_nao_obrigatorios else []
+
+    try:
+        response = realizar_requisicao_com_retry(url, headers=headers)
+        dados_tipagem = response.json()
+        
+        if 'dados' in dados_tipagem:
+            for tipo in dados_tipagem['dados']:
+                cod = tipo.get('cod')
+                
+                if cod in obrigatorios:
+                    tipo['obrigatorio'] = 1
+                elif cod in nao_obrigatorios:
+                    tipo['obrigatorio'] = 2
+                else:
+                    tipo['obrigatorio'] = 0
+                    
+        return dados_tipagem
+    except Exception as e:
+        print(f"Erro ao buscar tipos de eventos: {e}")
+        return None
+
+# Função buscar_tipos_eventos duplicada removida
+
