@@ -171,7 +171,7 @@ def buscar_todas_legislaturas_consolidado(formato="json"):
         print(f"Erro ao baixar legislaturas consolidadas ({formato}): {e}")
         return None
 
-def buscar_eventos(data_inicio, data_fim, itens=100, ordem='ASC', ordenar_por='dataHoraInicio'):
+def buscar_eventos(data_inicio, data_fim, itens=100, ordem='DESC', ordenar_por='dataHoraInicio'):
     """
     Busca TODOS os eventos em um intervalo de datas, percorrendo automaticamente todas as páginas da API.
     """
@@ -186,23 +186,31 @@ def buscar_eventos(data_inicio, data_fim, itens=100, ordem='ASC', ordenar_por='d
     }
 
     todos_eventos = []
+    pagina = 1
 
     try:
+        print(f"Buscando eventos de {data_inicio} até {data_fim}...")
         response = realizar_requisicao_com_retry(url, headers=headers, params=params)
         dados_pagina = response.json()
-        todos_eventos.extend(dados_pagina.get('dados', []))
+        eventos_pagina = dados_pagina.get('dados', [])
+        todos_eventos.extend(eventos_pagina)
+        print(f"Página {pagina} carregada: {len(eventos_pagina)} eventos encontrados. Total acumulado: {len(todos_eventos)}")
 
         links = dados_pagina.get('links', [])
         proxima_url = next((link['href'] for link in links if link['rel'] == 'next'), None)
 
         while proxima_url:
+            pagina += 1
             response = realizar_requisicao_com_retry(proxima_url, headers=headers)
             dados_pagina = response.json()
-            todos_eventos.extend(dados_pagina.get('dados', []))
+            eventos_pagina = dados_pagina.get('dados', [])
+            todos_eventos.extend(eventos_pagina)
+            print(f"Página {pagina} carregada: {len(eventos_pagina)} eventos encontrados. Total acumulado: {len(todos_eventos)}")
 
             links = dados_pagina.get('links', [])
             proxima_url = next((link['href'] for link in links if link['rel'] == 'next'), None)
 
+        print(f"Busca finalizada. Total de eventos: {len(todos_eventos)}")
     except Exception as e:
         print(f"Erro ao buscar eventos entre {data_inicio} e {data_fim}: {e}")
         if not todos_eventos:
@@ -224,21 +232,54 @@ def buscar_detalhe_evento(id_evento):
         print(f"Erro ao buscar detalhes do evento {id_evento}: {e}")
         return None
 
-def buscar_tipos_eventos(eventos_obrigatorios=None, eventos_nao_obrigatorios=None):
+def buscar_presencas_evento(id_evento):
+    """
+    Busca a lista de deputados presentes em um evento específico.
+    """
+    url = f"https://dadosabertos.camara.leg.br/api/v2/eventos/{id_evento}/deputados"
+    headers = {'accept': 'application/json'}
+
+    try:
+        response = realizar_requisicao_com_retry(url, headers=headers)
+        return response.json()
+    except Exception as e:
+        print(f"Erro ao buscar presenças do evento {id_evento}: {e}")
+        return None
+
+def buscar_votacoes_evento(id_evento):
+    """
+    Busca a lista de votações ocorridas em um evento específico.
+    """
+    url = f"https://dadosabertos.camara.leg.br/api/v2/eventos/{id_evento}/votacoes"
+    headers = {'accept': 'application/json'}
+
+    try:
+        response = realizar_requisicao_com_retry(url, headers=headers)
+        return response.json()
+    except Exception as e:
+        print(f"Erro ao buscar votações do evento {id_evento}: {e}")
+        return None
+
+def buscar_tipos_eventos(eventos_pontuacao=None):
     """
     Consome a API de referências para obter todos os tipos de eventos e adiciona
-    a marcação de obrigatorio baseada nas listas fornecidas.
+    a marcação de obrigatorio baseada na lista de dicionários EVENTOS_PONTUACAO.
     Regra:
-    - 1 se o ID estiver em eventos_obrigatorios
-    - 2 se o ID estiver em eventos_nao_obrigatorios
-    - 0 se não estiver em nenhuma das listas
+    - 1 se obrigatoriedade for "obrigatório"
+    - 2 se obrigatoriedade for diferente de "obrigatório"
+    - 0 se não estiver catalogado em EVENTOS_PONTUACAO
     """
     url = "https://dadosabertos.camara.leg.br/api/v2/referencias/eventos/codTipoEvento"
     headers = {'accept': 'application/json'}
 
-    # Garante que sejam listas para evitar erros de 'in'
-    obrigatorios = eventos_obrigatorios if eventos_obrigatorios else []
-    nao_obrigatorios = eventos_nao_obrigatorios if eventos_nao_obrigatorios else []
+    # Cria um mapeamento de cod para obrigatoriedade e descrição para busca rápida
+    mapeamento = {}
+    if eventos_pontuacao:
+        for item in eventos_pontuacao:
+            cod = str(item.get('cod'))
+            status = 1 if item.get('obrigatoriedade') == 'obrigatório' else 2
+            descricao_param = item.get('descricao', '')
+            mapeamento[cod] = {'status': status, 'descricao': descricao_param}
 
     try:
         response = realizar_requisicao_com_retry(url, headers=headers)
@@ -246,12 +287,14 @@ def buscar_tipos_eventos(eventos_obrigatorios=None, eventos_nao_obrigatorios=Non
         
         if 'dados' in dados_tipagem:
             for tipo in dados_tipagem['dados']:
-                cod = tipo.get('cod')
-                
-                if cod in obrigatorios:
-                    tipo['obrigatorio'] = 1
-                elif cod in nao_obrigatorios:
-                    tipo['obrigatorio'] = 2
+                cod = str(tipo.get('cod'))
+                info_param = mapeamento.get(cod)
+
+                if info_param:
+                    tipo['obrigatorio'] = info_param['status']
+                    # Se a descrição estiver vazia na API, preenche com a do parâmetro
+                    if not tipo.get('descricao') or tipo.get('descricao') == "":
+                        tipo['descricao'] = info_param['descricao']
                 else:
                     tipo['obrigatorio'] = 0
                     
@@ -260,5 +303,5 @@ def buscar_tipos_eventos(eventos_obrigatorios=None, eventos_nao_obrigatorios=Non
         print(f"Erro ao buscar tipos de eventos: {e}")
         return None
 
-# Função buscar_tipos_eventos duplicada removida
+
 

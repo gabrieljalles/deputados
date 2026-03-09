@@ -1,5 +1,6 @@
 import json
 import os
+import time
 
 def obter_dados_com_cache_por_arquivo(nome_arquivo, funcao, diretorio="data", *args, **kwargs):
     """
@@ -60,3 +61,79 @@ def salvar_em_json(dados, nome_arquivo, diretorio="data"):
         
     except (IOError, OSError) as e:
         print(f"Erro ao salvar o arquivo: {e}")
+
+def obter_dados_com_cache_por_id(nome_arquivo, base_ids, funcao_busca_item, diretorio="data", checkpoint_intervalo=100, **kwargs):
+    """
+    Cache inteligente por ID.
+    1. Lê os dados já salvos em 'nome_arquivo'.
+    2. Identifica quais IDs de 'base_ids' ainda não foram processados.
+    3. Busca apenas os faltantes usando 'funcao_busca_item'.
+    4. Salva o progresso a cada 'checkpoint_intervalo'.
+    """
+    if not os.path.exists(diretorio):
+        os.makedirs(diretorio)
+    
+    caminho_completo = os.path.join(diretorio, nome_arquivo)
+    dados_existentes = []
+    ids_processados = set()
+
+    # Carrega o que já existe
+    if os.path.exists(caminho_completo):
+        try:
+            with open(caminho_completo, 'r', encoding='utf-8') as f:
+                conteudo = json.load(f)
+                dados_carregados = conteudo.get('dados', [])
+                # Deduplica pelo campo de ID reconhecido ('id' ou 'idEvento')
+                for item in dados_carregados:
+                    id_item = item.get('id') if 'id' in item else item.get('idEvento')
+                    if id_item is not None:
+                        try:
+                            id_item = int(id_item)
+                        except (ValueError, TypeError):
+                            pass
+                        if id_item not in ids_processados:
+                            ids_processados.add(id_item)
+                            dados_existentes.append(item)
+                    else:
+                        dados_existentes.append(item)
+            print(f"Cache por ID: {len(ids_processados)} registros carregados de '{nome_arquivo}'.")
+        except Exception as e:
+            print(f"Erro ao carregar cache por ID: {e}. Iniciando do zero.")
+
+    # Converte os IDs da base para o mesmo tipo para comparação (int por segurança se a API usa int)
+    base_ids_formatados = []
+    for bid in base_ids:
+        try:
+            base_ids_formatados.append(int(bid))
+        except (ValueError, TypeError):
+            base_ids_formatados.append(bid)
+
+    ids_faltantes = [id_item for id_item in base_ids_formatados if id_item not in ids_processados]
+    
+    if not ids_faltantes:
+        print(f"Todos os {len(base_ids_formatados)} IDs já estão processados em '{nome_arquivo}'.")
+        return {"dados": dados_existentes}
+
+    print(f"Processando {len(ids_faltantes)} IDs faltantes (Total: {len(base_ids_formatados)})...")
+    
+    novos_dados = []
+    total_faltantes = len(ids_faltantes)
+
+    # Processa em lotes do tamanho do checkpoint_intervalo,
+    # aproveitando a concorrência e salvando após cada lote
+    for i in range(0, total_faltantes, checkpoint_intervalo):
+        lote = ids_faltantes[i:i + checkpoint_intervalo]
+        fim_lote = min(i + checkpoint_intervalo, total_faltantes)
+        print(f"\n[{fim_lote}/{total_faltantes}] Buscando lote de {len(lote)} IDs...")
+
+        try:
+            resultado = funcao_busca_item(lote, **kwargs)
+            if resultado and 'dados' in resultado:
+                novos_dados.extend(resultado['dados'])
+        except Exception as e:
+            print(f"Erro ao processar lote [{i}:{fim_lote}]: {e}")
+
+        print(f"[{fim_lote}/{total_faltantes}] Salvando checkpoint em '{nome_arquivo}'...")
+        salvar_em_json({"dados": dados_existentes + novos_dados}, nome_arquivo, diretorio)
+
+    return {"dados": dados_existentes + novos_dados}

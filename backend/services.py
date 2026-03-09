@@ -1,13 +1,20 @@
 import time
-from api_service import buscar_deputados, buscar_deputado_detalhado, buscar_todas_despesas_paginado, buscar_eventos, buscar_detalhe_evento
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from api_service import (
+    buscar_deputados, 
+    buscar_deputado_detalhado, 
+    buscar_todas_despesas_paginado, 
+    buscar_eventos, 
+    buscar_detalhe_evento,
+    buscar_presencas_evento,
+    buscar_votacoes_evento
+)
 
-def agregar_despesas_deputados(lista_ids_deputados, ids_legislaturas=None):
+def agregar_despesas_deputados(lista_ids_deputados, ids_legislaturas=None, max_workers=20):
     """
-    Busca todas as despesas para uma lista de IDs de deputados.
+    Busca todas as despesas para uma lista de IDs de deputados de forma concorrente.
     Se `ids_legislaturas` for fornecido (lista), busca apenas despesas dessas legislaturas.
-    Caso contrário, busca todas as despesas disponíveis para cada deputado.
     """
-    # Garante que lista_ids_deputados seja uma lista, mesmo que o usuário passe um único ID (int)
     if isinstance(lista_ids_deputados, int):
         lista_ids_deputados = [lista_ids_deputados]
         
@@ -15,48 +22,55 @@ def agregar_despesas_deputados(lista_ids_deputados, ids_legislaturas=None):
         print("Aviso: Lista de IDs de deputados está vazia.")
         return {"dados": []}
 
-    # Se ids_legislaturas for um número único, converte para lista
     if isinstance(ids_legislaturas, int):
         ids_legislaturas = [ids_legislaturas]
 
-    print(f"Iniciando agregação de despesas para {len(lista_ids_deputados)} deputados...")
-    
+    legislaturas_para_buscar = ids_legislaturas if ids_legislaturas else [None]
+
+    # Cria todas as combinações (id_deputado, id_legislatura) para processar
+    tarefas = [
+        (id_dep, id_leg)
+        for id_dep in lista_ids_deputados
+        for id_leg in legislaturas_para_buscar
+    ]
+
+    total_tarefas = len(tarefas)
+    print(f"Iniciando agregação concorrente de despesas: {len(lista_ids_deputados)} deputados x {len(legislaturas_para_buscar)} legislatura(s) = {total_tarefas} tarefa(s) com {max_workers} threads...")
+
     todas_despesas_consolidadas = []
-    total_deputados = len(lista_ids_deputados)
-    
-    # Tempo médio estimado por deputado (considerando paginação típica)
-    segundos_por_deputado = 1.2 
-    
-    for i, id_deputado in enumerate(lista_ids_deputados, 1):
-        # Cálculo de tempo restante
-        restantes = total_deputados - i
-        segundos_restantes = restantes * segundos_por_deputado
-        min_restantes = int(segundos_restantes // 60)
-        seg_restantes = int(segundos_restantes % 60)
-        
-        # Formata o tempo conforme solicitado: "3m 34s"
-        tempo_str = f"{min_restantes}m {seg_restantes}s" if min_restantes > 0 else f"{seg_restantes}s"
-        
-        # Impressão no estilo carregamento (\r e flush)
-        print(f"\r[{i}/{total_deputados}] Processando ID: {id_deputado} | Est. restante: {tempo_str}      ", end="", flush=True)
-        
-        # Se ids_legislaturas for None, busca tudo (histórico total)
-        legislaturas_para_buscar = ids_legislaturas if ids_legislaturas else [None]
-        
-        for id_leg in legislaturas_para_buscar:
-            resultado = buscar_todas_despesas_paginado(id_deputado, id_legislatura=id_leg)
-            
-            if resultado and 'dados' in resultado:
-                for despesa in resultado['dados']:
-                    despesa['idDeputadoDono'] = id_deputado
-                todas_despesas_consolidadas.extend(resultado['dados'])
-            
-            time.sleep(0.05) 
+
+    def buscar_despesas_tarefa(id_deputado, id_legislatura):
+        resultado = buscar_todas_despesas_paginado(id_deputado, id_legislatura=id_legislatura)
+        despesas = []
+        if resultado and 'dados' in resultado:
+            for despesa in resultado['dados']:
+                despesa['idDeputadoDono'] = id_deputado
+            despesas = resultado['dados']
+        return despesas
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_to_tarefa = {
+            executor.submit(buscar_despesas_tarefa, id_dep, id_leg): (id_dep, id_leg)
+            for id_dep, id_leg in tarefas
+        }
+
+        concluidos = 0
+        for future in as_completed(future_to_tarefa):
+            concluidos += 1
+            id_dep, id_leg = future_to_tarefa[future]
+            try:
+                despesas = future.result()
+                todas_despesas_consolidadas.extend(despesas)
+            except Exception as exc:
+                print(f"\nErro ao buscar despesas do deputado {id_dep} (leg {id_leg}): {exc}")
+
+            if concluidos % 10 == 0 or concluidos == total_tarefas:
+                print(f"Progresso: {concluidos}/{total_tarefas} tarefas concluídas...", end='\r')
 
     print(f"\nFinalizado! Total de registros de despesas: {len(todas_despesas_consolidadas)}")
     return {"dados": todas_despesas_consolidadas}
 
-def agregar_deputados_por_legislaturas(legislaturas_consolidado, limite_legislaturas=10):
+def agregar_deputados_por_legislaturas(legislaturas_consolidado, limite_legislaturas=20):
     """
     Extrai os IDs das legislaturas do JSON consolidado e busca 
     os deputados para cada uma, consolidando os resultados.
@@ -99,48 +113,122 @@ def agregar_deputados_por_legislaturas(legislaturas_consolidado, limite_legislat
     print(f"Total de deputados únicos encontrados: {len(todos_deputados_lista)}")
     return {"dados": list(todos_deputados_lista)}
 
-def agregar_detalhes_deputados(dados_deputados):
+def agregar_detalhes_deputados(dados_deputados, max_workers=20):
     """
-    Coordena a busca de detalhes para uma lista de deputados, removendo IDs duplicados antes da busca.
-    Exibe o progresso e uma estimativa de tempo restante.
+    Coordena a busca de detalhes para uma lista de deputados de forma concorrente,
+    removendo IDs duplicados antes da busca.
     """
     lista_crua = dados_deputados.get('dados', [])
     
-    # Remove duplicados usando o ID como chave (preserva o último encontrado)
     deputados_unicos = {d['id']: d for d in lista_crua}.values()
     lista_dep = list(deputados_unicos)
     total = len(lista_dep)
     
-    print(f"Iniciando busca de detalhes para {total} deputados únicos...")
+    if total == 0:
+        return {"dados": []}
+
+    print(f"Iniciando busca concorrente de detalhes para {total} deputados únicos com {max_workers} threads...")
     
     todos_detalhes = []
-    tempo_medio_por_deputado = 0.6  # Estimativa aproximada (0.1 sleep + ~0.5 requisição)
-    
-    for i, deputado in enumerate(lista_dep, 1):
-        id_deputado = deputado['id']
-        
-        # Cálculo da estimativa de tempo restante
-        falta = total - i
-        segundos_restantes = falta * tempo_medio_por_deputado
-        minutos, segundos = divmod(int(segundos_restantes), 60)
-        tempo_str = f"{minutos}m {segundos}s" if minutos > 0 else f"{segundos}s"
-        
-        print(f"[{i}/{total}] Processando ID: {id_deputado} | Est. restante: {tempo_str}", end='\r')
-        
-        detalhes = buscar_deputado_detalhado(id_deputado)
-        
-        if detalhes and 'dados' in detalhes:
-            todos_detalhes.append(detalhes['dados'])
-        
-        time.sleep(0.1)
-    
-    print(f"\nBusca de detalhes concluída! Total coletado: {len(todos_detalhes)}")
-    return todos_detalhes
 
-def agregar_eventos_por_legislaturas(legislaturas_consolidado, limite_legislaturas=None):
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_to_id = {executor.submit(buscar_deputado_detalhado, dep['id']): dep['id'] for dep in lista_dep}
+
+        concluidos = 0
+        for future in as_completed(future_to_id):
+            concluidos += 1
+            id_deputado = future_to_id[future]
+            try:
+                detalhes = future.result()
+                if detalhes and 'dados' in detalhes:
+                    todos_detalhes.append(detalhes['dados'])
+            except Exception as exc:
+                print(f"\nErro no deputado {id_deputado}: {exc}")
+
+            if concluidos % 10 == 0 or concluidos == total:
+                print(f"Progresso: {concluidos}/{total} processados...", end='\r')
+
+    print(f"\nBusca de detalhes concluída! Total coletado: {len(todos_detalhes)}")
+    return {"dados": todos_detalhes}
+
+def agregar_presencas_eventos(lista_ids_eventos, max_workers=20):
     """
-    Busca todos os eventos para cada legislatura, extraindo dataInicio e dataFim
-    do JSON consolidado e chamando buscar_eventos para cada uma.
+    Busca a lista de presença (deputados) para cada ID de evento de forma concorrente.
+    Retorna uma lista onde cada item contém o ID do evento e a lista de presentes.
+    """
+    total = len(lista_ids_eventos)
+    if total == 0:
+        return {"dados": []}
+
+    print(f"Buscando presenças para {total} eventos com {max_workers} threads...")
+    
+    todos_resultados = []
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # Criamos uma tarefa para cada ID de evento
+        future_to_id = {executor.submit(buscar_presencas_evento, id_ev): id_ev for id_ev in lista_ids_eventos}
+
+        concluidos = 0
+        for future in as_completed(future_to_id):
+            concluidos += 1
+            id_ev = future_to_id[future]
+            try:
+                resultado = future.result()
+                if resultado and 'dados' in resultado:
+                    # Estrutura: {id_evento: X, presencas: [...]}
+                    todos_resultados.append({
+                        "idEvento": id_ev,
+                        "presencas": resultado['dados']
+                    })
+            except Exception as exc:
+                print(f"\nErro ao buscar presenças do evento {id_ev}: {exc}")
+
+            if concluidos % 10 == 0 or concluidos == total:
+                print(f"Progresso Presenças: {concluidos}/{total} processados...", end='\r')
+
+    print(f"\nBusca de presenças concluída! Total de eventos com presença: {len(todos_resultados)}")
+    return {"dados": todos_resultados}
+
+def agregar_votacoes_eventos(lista_ids_eventos, max_workers=20):
+    """
+    Busca as votações ocorridas em cada ID de evento de forma concorrente.
+    Retorna uma lista onde cada item contém o ID do evento e as votações.
+    """
+    total = len(lista_ids_eventos)
+    if total == 0:
+        return {"dados": []}
+
+    print(f"Buscando votações para {total} eventos com {max_workers} threads...")
+    
+    todos_resultados = []
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_to_id = {executor.submit(buscar_votacoes_evento, id_ev): id_ev for id_ev in lista_ids_eventos}
+
+        concluidos = 0
+        for future in as_completed(future_to_id):
+            concluidos += 1
+            id_ev = future_to_id[future]
+            try:
+                resultado = future.result()
+                if resultado and 'dados' in resultado:
+                    todos_resultados.append({
+                        "idEvento": id_ev,
+                        "votacoes": resultado['dados']
+                    })
+            except Exception as exc:
+                print(f"\nErro ao buscar votações do evento {id_ev}: {exc}")
+
+            if concluidos % 10 == 0 or concluidos == total:
+                print(f"Progresso Votações: {concluidos}/{total} processados...", end='\r')
+
+    print(f"\nBusca de votações concluída! Total de eventos com votações: {len(todos_resultados)}")
+    return {"dados": todos_resultados}
+
+def agregar_eventos_por_legislaturas(legislaturas_consolidado, limite_legislaturas=None, max_workers=20):
+    """
+    Busca todos os eventos para cada legislatura de forma concorrente,
+    extraindo dataInicio e dataFim do JSON consolidado.
     """
     if not legislaturas_consolidado or 'dados' not in legislaturas_consolidado:
         print("Erro: JSON de legislaturas inválido.")
@@ -158,65 +246,71 @@ def agregar_eventos_por_legislaturas(legislaturas_consolidado, limite_legislatur
         legislaturas_ordenadas = legislaturas_ordenadas[:limite_legislaturas]
         print(f"Limite ativado: Processando as {limite_legislaturas} legislaturas mais recentes.")
 
-    print(f"Buscando eventos para {len(legislaturas_ordenadas)} legislatura(s)...")
+    print(f"Buscando eventos para {len(legislaturas_ordenadas)} legislatura(s) com {max_workers} threads...")
 
     todos_eventos = []
 
-    for leg in legislaturas_ordenadas:
+    def task_eventos(leg):
         id_leg = leg.get('idLegislatura') or leg.get('id')
         data_inicio = leg.get('dataInicio')
         data_fim = leg.get('dataFim')
 
         if not data_inicio or not data_fim:
             print(f"Legislatura {id_leg}: datas não encontradas, pulando...")
-            continue
+            return []
 
-        print(f"Buscando eventos da legislatura {id_leg} ({data_inicio} a {data_fim})...")
         resultado = buscar_eventos(data_inicio, data_fim)
-
+        
+        eventos_leg = []
         if resultado and 'dados' in resultado:
             for evento in resultado['dados']:
                 evento['idLegislatura'] = id_leg
-            todos_eventos.extend(resultado['dados'])
-            print(f"  -> {len(resultado['dados'])} evento(s) encontrado(s).")
+                eventos_leg.append(evento)
+        return eventos_leg
 
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {executor.submit(task_eventos, leg): leg for leg in legislaturas_ordenadas}
+        
+        for future in as_completed(futures):
+            leg = futures[future]
+            id_leg = leg.get('idLegislatura') or leg.get('id')
+            try:
+                eventos_retornados = future.result()
+                todos_eventos.extend(eventos_retornados)
+                print(f"Legislatura {id_leg}: {len(eventos_retornados)} evento(s) carregado(s).")
+            except Exception as exc:
+                print(f"Erro ao processar legislatura {id_leg}: {exc}")
 
     print(f"\nTotal de eventos coletados: {len(todos_eventos)}")
     return {"dados": todos_eventos}
 
-def agregar_detalhes_eventos(dados_eventos):
+def agregar_detalhes_eventos_concorrente(lista_ids_eventos, max_workers=20):
     """
-    Busca os detalhes completos de cada evento listado em dados_eventos,
-    removendo IDs duplicados antes da busca. Exibe progresso e estimativa de tempo.
+    Busca os detalhes completos de uma lista de IDs de eventos de forma concorrente.
+    Retorna uma lista de resultados (dados do evento).
     """
-    lista_crua = dados_eventos.get('dados', [])
-
-    # Remove duplicados pelo ID do evento
-    eventos_unicos = {e['id']: e for e in lista_crua if 'id' in e}.values()
-    lista_eventos = list(eventos_unicos)
-    total = len(lista_eventos)
-
-    print(f"Iniciando busca de detalhes para {total} evento(s) único(s)...")
+    total = len(lista_ids_eventos)
+    if total == 0:
+        return []
 
     todos_detalhes = []
-    tempo_medio_por_evento = 0.6
+    
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_to_id = {executor.submit(buscar_detalhe_evento, id_ev): id_ev for id_ev in lista_ids_eventos}
+        
+        concluidos = 0
+        for future in as_completed(future_to_id):
+            concluidos += 1
+            id_ev = future_to_id[future]
+            try:
+                detalhes = future.result()
+                if detalhes and 'dados' in detalhes:
+                    todos_detalhes.append(detalhes['dados'])
+            except Exception as exc:
+                print(f"\nErro no ID {id_ev}: {exc}")
+            
+            if concluidos % 10 == 0 or concluidos == total:
+                print(f"Progresso: {concluidos}/{total} processados... ", end='\r')
 
-    for i, evento in enumerate(lista_eventos, 1):
-        id_evento = evento['id']
-
-        falta = total - i
-        segundos_restantes = falta * tempo_medio_por_evento
-        minutos, segundos = divmod(int(segundos_restantes), 60)
-        tempo_str = f"{minutos}m {segundos}s" if minutos > 0 else f"{segundos}s"
-
-        print(f"[{i}/{total}] Processando evento ID: {id_evento} | Est. restante: {tempo_str}", end='\r')
-
-        detalhes = buscar_detalhe_evento(id_evento)
-
-        if detalhes and 'dados' in detalhes:
-            todos_detalhes.append(detalhes['dados'])
-
-        time.sleep(0.1)
-
-    print(f"\nBusca de detalhes de eventos concluída! Total coletado: {len(todos_detalhes)}")
     return {"dados": todos_detalhes}
+

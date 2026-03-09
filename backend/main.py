@@ -9,20 +9,22 @@ from api_service import (
     buscar_todas_legislaturas_consolidado,
     buscar_tipos_eventos
 )
-from parametros import EVENTOS_NAO_OBRIGATORIOS, EVENTOS_OBRIGATORIOS
-from file_handler import obter_dados_com_cache_por_arquivo, salvar_em_json
+from parametros import EVENTOS_PONTUACAO
+from file_handler import obter_dados_com_cache_por_arquivo, salvar_em_json, obter_dados_com_cache_por_id
 from services import (
     agregar_deputados_por_legislaturas, 
     agregar_detalhes_deputados,
     agregar_despesas_deputados,
     agregar_eventos_por_legislaturas,
-    agregar_detalhes_eventos
+    agregar_detalhes_eventos_concorrente,
+    agregar_presencas_eventos,
+    agregar_votacoes_eventos
 )
 import os
 import json
 
 # Parametros ----------------------------
-limite_legislaturas = 4 # Define quantas legislaturas a partir da última deve ser baixado.
+limite_legislaturas = 2 # Define quantas legislaturas a partir da última deve ser baixado.
 
 
 
@@ -47,8 +49,7 @@ def executar_processo():
     tipos_eventos = obter_dados_com_cache_por_arquivo(
         "eventostipagem.json",
         buscar_tipos_eventos,
-        eventos_obrigatorios=EVENTOS_OBRIGATORIOS, 
-        eventos_nao_obrigatorios=EVENTOS_NAO_OBRIGATORIOS
+        eventos_pontuacao=EVENTOS_PONTUACAO
     )
     
     # 1. Lista de Deputados por Legislatura (Agregada no services)
@@ -84,20 +85,32 @@ def executar_processo():
         limite_legislaturas=limite_legislaturas
     )
 
-    # 5. Detalhes dos Eventos
-    eventos_detalhados = obter_dados_com_cache_por_arquivo(
-        "eventos_detalhados.json",
-        agregar_detalhes_eventos,
-        dados_eventos=eventos
+    # 4.1 Presenças nos Eventos (Novo)
+    # Extraímos IDs únicos de eventos coletados
+    ids_eventos_lista = list({e['id'] for e in eventos.get('dados', []) if 'id' in e})
+    
+    eventos_presencas = obter_dados_com_cache_por_id(
+        "evento_presencas.json",
+        base_ids=ids_eventos_lista,
+        funcao_busca_item=agregar_presencas_eventos,
+        checkpoint_intervalo=500 # Salva a cada 500 IDs para evitar perda de progresso
     )
 
-    # 6. Estatísticas e Análises (Estudo por legislatura ou geral)
+    # 4.2 Votações nos Eventos (Novo)
+    eventos_votacoes = obter_dados_com_cache_por_id(
+        "eventos_votacoes.json",
+        base_ids=ids_eventos_lista,
+        funcao_busca_item=agregar_votacoes_eventos,
+        checkpoint_intervalo=500
+    )
+
+    # 5. Estatísticas e Análises (Estudo por legislatura ou geral)
     soma_total = calcular_soma_total_valor_liquido(deputados_despesas)
     media_deputado = media_por_deputado(deputados_despesas)
     desvio_padrao = calcular_desvio_padrao_gastos(deputados_despesas)
     gastos_tipo = gastos_por_tipo(deputados_despesas)
     
-    # 7. Mostrar gráfico
+    # 6. Mostrar gráfico
     print("\nComo deseja ordenar o gráfico?")
     print("1 - Por maior valor de gasto (Padrão)")
     print("2 - Por ordem alfabética (Nome)")

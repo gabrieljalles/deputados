@@ -10,6 +10,14 @@
 
 
 # Votações realizadas e a qualidade das votações.
+[ ] Existe a orientação do partido e o que o deputaod do partido realmente vota.
+    Se orientação = S e votação = S - Fiel |
+    Se orientação = S e votação = N - Infiel |
+    Se orientação = N e votação = S - Infiel |
+    Se orientação = N e votação = N - Fiel |
+    - Depois, ver a porcentagem de fidelidade em relação ao total dos dados.
+    - Resultado : Joaquim tem 80% de fidelidade ao partido.
+
 
 
 
