@@ -1,7 +1,7 @@
 .venv/
-# Ignora arquivos dentro de data, mas mantém a pasta e o .gitkeep
-data/*
-!data/.gitkeep
+# Ignora arquivos dentro de raw, mas mantém a pasta e o .gitkeep
+raw/*
+!raw/.gitkeep
 __pycache__/
 *.py[cod]
 *$py.class

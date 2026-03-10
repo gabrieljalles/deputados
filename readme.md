@@ -31,21 +31,21 @@
 [ ] Gasto total com assessores
 [ ] Comparar com os demais deputados
 
-# Criar troféus mensais / 3 meses
+# Criar troféus mensais / 3 meses 
 
 - São distribuídos todos os meses, todo mês recemeça a contagem.
   - (Não sei se vou adaptar para três meses ao invés de um)
 - Deputado que mais economizou naquele mês.
 - Deputado que mais fez discursos naquele mês.
 
-# Criar selos quantitativos
+# Criar selos quantitativos (Produtividade)
 
 - Selos são atividades quantitativas:
   - Selos em que o deputado atinge uma quantidade específica de discursos na Camara.
   - Selos em que o deputado destina X de emendas.
   - Selos em que o deputado Economiza Tanto nos gastos baseado com seus pares.
 
-# Selos de decisão
+# Selos de decisão (Postura)
 
 - Selos que mostram que o deputado tomou um lado específico em um momento muito importante.
   - Pec da blindagem

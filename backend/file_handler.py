@@ -2,7 +2,7 @@ import json
 import os
 import time
 
-def obter_dados_com_cache_por_arquivo(nome_arquivo, funcao, diretorio="data", *args, **kwargs):
+def obter_dados_com_cache_por_arquivo(nome_arquivo, funcao, diretorio="raw", *args, **kwargs):
     """
     Verifica se um arquivo JSON existe.
     Se existir, carrega os dados do arquivo.
@@ -38,7 +38,7 @@ def obter_dados_com_cache_por_arquivo(nome_arquivo, funcao, diretorio="data", *a
     
     return resultado
 
-def salvar_em_json(dados, nome_arquivo, diretorio="data"):
+def salvar_em_json(dados, nome_arquivo, diretorio="raw"):
     """
     Salva os dados fornecidos em um arquivo JSON em um diretório específico.
     """
@@ -62,7 +62,7 @@ def salvar_em_json(dados, nome_arquivo, diretorio="data"):
     except (IOError, OSError) as e:
         print(f"Erro ao salvar o arquivo: {e}")
 
-def obter_dados_com_cache_por_id(nome_arquivo, base_ids, funcao_busca_item, diretorio="data", checkpoint_intervalo=100, **kwargs):
+def obter_dados_com_cache_por_id(nome_arquivo, base_ids, funcao_busca_item, diretorio="raw", checkpoint_intervalo=100, **kwargs):
     """
     Cache inteligente por ID.
     1. Lê os dados já salvos em 'nome_arquivo'.
@@ -83,9 +83,13 @@ def obter_dados_com_cache_por_id(nome_arquivo, base_ids, funcao_busca_item, dire
             with open(caminho_completo, 'r', encoding='utf-8') as f:
                 conteudo = json.load(f)
                 dados_carregados = conteudo.get('dados', [])
-                # Deduplica pelo campo de ID reconhecido ('id' ou 'idEvento')
+                # Deduplica pelo campo de ID reconhecido ('id', 'idEvento' ou 'idVotacao')
                 for item in dados_carregados:
-                    id_item = item.get('id') if 'id' in item else item.get('idEvento')
+                    id_item = None
+                    for chave in ('id', 'idEvento', 'idVotacao'):
+                        if chave in item:
+                            id_item = item[chave]
+                            break
                     if id_item is not None:
                         try:
                             id_item = int(id_item)

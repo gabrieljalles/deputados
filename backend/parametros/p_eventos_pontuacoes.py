@@ -361,3 +361,8 @@ EVENTOS_PONTUACAO = [
     "importancia": "Fiscalização completa com votação",
   },
 ]
+
+
+
+
+

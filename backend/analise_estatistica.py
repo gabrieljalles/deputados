@@ -10,7 +10,7 @@ def carregar_id_nomes():
     """
     mapeamento = {}
     try:
-        with open('data/deputados.json', 'r', encoding='utf-8') as f:
+        with open('raw/deputados.json', 'r', encoding='utf-8') as f:
             dados = json.load(f)
             for d in dados.get('dados', []):
                 mapeamento[str(d['id'])] = d['nome']
@@ -256,7 +256,7 @@ def media_por_deputado(dados_despesas):
 
 if __name__ == "__main__":
     try:
-        with open('data/deputados_despesas.json', 'r', encoding='utf-8') as f:
+        with open('raw/deputados_despesas.json', 'r', encoding='utf-8') as f:
             dados = json.load(f)
             
             print("\n--- Relatório Estatístico de Despesas ---")
@@ -266,7 +266,7 @@ if __name__ == "__main__":
             plotar_gastos_deputados(dados)
             
     except FileNotFoundError:
-        print(" Arquivo 'data/deputados_despesas.json' não encontrado.")
+        print(" Arquivo 'raw/deputados_despesas.json' não encontrado.")
     except Exception as e:
         print(f" Erro ao processar arquivo: {e}")
 

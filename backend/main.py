@@ -9,7 +9,7 @@ from api_service import (
     buscar_todas_legislaturas_consolidado,
     buscar_tipos_eventos
 )
-from parametros import EVENTOS_PONTUACAO
+from backend.p_eventos_pontuacoes import EVENTOS_PONTUACAO
 from file_handler import obter_dados_com_cache_por_arquivo, salvar_em_json, obter_dados_com_cache_por_id
 from services import (
     agregar_deputados_por_legislaturas, 
@@ -20,7 +20,8 @@ from services import (
     agregar_orientacoes_votacoes_por_ids,
     agregar_presencas_eventos,
     agregar_votacoes_eventos,
-    agregar_orientacoes_votacoes
+    agregar_orientacoes_votacoes,
+    agregar_votos_votacoes_por_ids
 )
 import os
 import json
@@ -106,23 +107,31 @@ def executar_processo():
         checkpoint_intervalo=500
     )
 
-    # 4.3 Orientações de Votação (Novo)
-    # Extraímos IDs únicos de votações a partir de eventos_votacoes
+    # 4.3 Extraímos IDs únicos de votações a partir de eventos_votacoes
     ids_votacoes_lista = []
     if eventos_votacoes and 'dados' in eventos_votacoes:
         for ev in eventos_votacoes['dados']:
             for vot in ev.get('votacoes', []):
                 if vot.get('id'):
                     ids_votacoes_lista.append(vot['id'])
-    
+
     # Remove duplicatas mantendo ordem
     ids_votacoes_lista = list(dict.fromkeys(ids_votacoes_lista))
 
+    # 4.3 Votos das Votações
+    votacao_votos = obter_dados_com_cache_por_id(
+        "votacao_votos.json",
+        base_ids=ids_votacoes_lista,
+        funcao_busca_item=agregar_votos_votacoes_por_ids,
+        checkpoint_intervalo=1000
+    )
+
+    # 4.4 Orientações de Votação
     votacao_orientacoes = obter_dados_com_cache_por_id(
         "votacao_orientacoes.json",
         base_ids=ids_votacoes_lista,
         funcao_busca_item=agregar_orientacoes_votacoes_por_ids,
-        checkpoint_intervalo=500
+        checkpoint_intervalo=1000
     )
 
 

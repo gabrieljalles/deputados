@@ -274,6 +274,20 @@ def buscar_orientacoes_votacao(id_votacao):
         print(f"Erro ao buscar orientações da votação {id_votacao}: {e}")
         return None
 
+def buscar_votos_votacao(id_votacao):
+    """
+    Busca os votos individuais de uma votação específica pelo seu ID.
+    """
+    url = f"https://dadosabertos.camara.leg.br/api/v2/votacoes/{id_votacao}/votos"
+    headers = {'accept': 'application/json'}
+
+    try:
+        response = realizar_requisicao_com_retry(url, headers=headers)
+        return response.json()
+    except Exception as e:
+        print(f"Erro ao buscar votos da votação {id_votacao}: {e}")
+        return None
+
 def buscar_tipos_eventos(eventos_pontuacao=None):
     """
     Consome a API de referências para obter todos os tipos de eventos e adiciona

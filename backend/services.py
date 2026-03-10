@@ -8,8 +8,41 @@ from api_service import (
     buscar_detalhe_evento,
     buscar_presencas_evento,
     buscar_votacoes_evento,
-    buscar_orientacoes_votacao
+    buscar_orientacoes_votacao,
+    buscar_votos_votacao
 )
+
+def agregar_votos_votacoes_por_ids(base_ids, max_workers=20):
+    """
+    Busca os votos individuais de cada votação de forma concorrente.
+    Recebe diretamente uma lista de IDs de votação.
+    Compatível com o sistema de cache por ID do main.
+    """
+    print(f"Buscando votos para {len(base_ids)} votação(ões) com {max_workers} threads...")
+    todos_votos = []
+
+    def task_votos(id_votacao):
+        resultado = buscar_votos_votacao(id_votacao)
+        votos_lista = []
+        if resultado and 'dados' in resultado:
+            for voto in resultado['dados']:
+                voto['idVotacao'] = id_votacao
+                votos_lista.append(voto)
+        return votos_lista
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {executor.submit(task_votos, vid): vid for vid in base_ids}
+
+        for future in as_completed(futures):
+            vid = futures[future]
+            try:
+                votos_retornados = future.result()
+                todos_votos.extend(votos_retornados)
+            except Exception as e:
+                print(f"Erro ao processar votos da votação {vid}: {e}")
+
+    print(f"Busca de votos finalizada. Total: {len(todos_votos)}")
+    return {"dados": todos_votos}
 
 def agregar_orientacoes_votacoes(eventos_votacoes, max_workers=20):
     """
