@@ -7,8 +7,82 @@ from api_service import (
     buscar_eventos, 
     buscar_detalhe_evento,
     buscar_presencas_evento,
-    buscar_votacoes_evento
+    buscar_votacoes_evento,
+    buscar_orientacoes_votacao
 )
+
+def agregar_orientacoes_votacoes(eventos_votacoes, max_workers=20):
+    """
+    Busca as orientações de bancada para cada votação de forma concorrente.
+    Recebe a lista de eventos com suas votações (estrutura de eventos_votacoes.json).
+    """
+    if not eventos_votacoes or 'dados' not in eventos_votacoes:
+        print("Erro: JSON de votações inválido.")
+        return None
+
+    # Extrai todos os IDs únicos de votações
+    votos_ids = set()
+    for evento in eventos_votacoes['dados']:
+        for votacao in evento.get('votacoes', []):
+            if votacao.get('id'):
+                votos_ids.add(votacao['id'])
+
+    print(f"Buscando orientações para {len(votos_ids)} votação(ões) com {max_workers} threads...")
+
+    todas_orientacoes = []
+
+    def task_orientacoes(id_votacao):
+        resultado = buscar_orientacoes_votacao(id_votacao)
+        orientacoes_voto = []
+        if resultado and 'dados' in resultado:
+            for orientacao in resultado['dados']:
+                orientacao['idVotacao'] = id_votacao
+                orientacoes_voto.append(orientacao)
+        return orientacoes_voto
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {executor.submit(task_orientacoes, vid): vid for vid in votos_ids}
+        
+        for future in as_completed(futures):
+            vid = futures[future]
+            try:
+                orientacoes_retornadas = future.result()
+                todas_orientacoes.extend(orientacoes_retornadas)
+                # print(f"Votação {vid}: {len(orientacoes_retornadas)} orientação(ões) carregada(s).")
+            except Exception as e:
+                print(f"Erro ao processar orientações da votação {vid}: {e}")
+
+    print(f"Busca de orientações finalizada. Total: {len(todas_orientacoes)}")
+    return {"dados": todas_orientacoes}
+
+def agregar_orientacoes_votacoes_por_ids(base_ids, max_workers=20):
+    """
+    Versão do agregador que recebe diretamente uma lista de IDs de votação.
+    Compatível com o sistema de cache por ID do main.
+    """
+    print(f"Buscando orientações para {len(base_ids)} votação(ões) com {max_workers} threads...")
+    todas_orientacoes = []
+
+    def task_orientacoes(id_votacao):
+        resultado = buscar_orientacoes_votacao(id_votacao)
+        orientacoes_voto = []
+        if resultado and 'dados' in resultado:
+            for orientacao in resultado['dados']:
+                orientacao['idVotacao'] = id_votacao
+                orientacoes_voto.append(orientacao)
+        return orientacoes_voto
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {executor.submit(task_orientacoes, vid): vid for vid in base_ids}
+        
+        for future in as_completed(futures):
+            try:
+                orientacoes_retornadas = future.result()
+                todas_orientacoes.extend(orientacoes_retornadas)
+            except Exception as e:
+                print(f"Erro ao processar orientações: {e}")
+
+    return {"dados": todas_orientacoes}
 
 def agregar_despesas_deputados(lista_ids_deputados, ids_legislaturas=None, max_workers=20):
     """

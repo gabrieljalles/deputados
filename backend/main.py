@@ -17,14 +17,16 @@ from services import (
     agregar_despesas_deputados,
     agregar_eventos_por_legislaturas,
     agregar_detalhes_eventos_concorrente,
+    agregar_orientacoes_votacoes_por_ids,
     agregar_presencas_eventos,
-    agregar_votacoes_eventos
+    agregar_votacoes_eventos,
+    agregar_orientacoes_votacoes
 )
 import os
 import json
 
 # Parametros ----------------------------
-limite_legislaturas = 2 # Define quantas legislaturas a partir da última deve ser baixado.
+limite_legislaturas = 1 # Define quantas legislaturas a partir da última deve ser baixado.
 
 
 
@@ -104,24 +106,25 @@ def executar_processo():
         checkpoint_intervalo=500
     )
 
-    # 5. Estatísticas e Análises (Estudo por legislatura ou geral)
-    soma_total = calcular_soma_total_valor_liquido(deputados_despesas)
-    media_deputado = media_por_deputado(deputados_despesas)
-    desvio_padrao = calcular_desvio_padrao_gastos(deputados_despesas)
-    gastos_tipo = gastos_por_tipo(deputados_despesas)
+    # 4.3 Orientações de Votação (Novo)
+    # Extraímos IDs únicos de votações a partir de eventos_votacoes
+    ids_votacoes_lista = []
+    if eventos_votacoes and 'dados' in eventos_votacoes:
+        for ev in eventos_votacoes['dados']:
+            for vot in ev.get('votacoes', []):
+                if vot.get('id'):
+                    ids_votacoes_lista.append(vot['id'])
     
-    # 6. Mostrar gráfico
-    print("\nComo deseja ordenar o gráfico?")
-    print("1 - Por maior valor de gasto (Padrão)")
-    print("2 - Por ordem alfabética (Nome)")
-    
-    opcao = input("Escolha (1 ou 2): ").strip()
-    ordem = 'nome' if opcao == '2' else 'valor'
-    
-    print(f"\nGerando gráfico interativo (ordenado por {ordem})...")
-    plotar_gastos_deputados(deputados_despesas, ordenar_por=ordem)
+    # Remove duplicatas mantendo ordem
+    ids_votacoes_lista = list(dict.fromkeys(ids_votacoes_lista))
 
-    print(f"\n Processo de coleta concluído com sucesso!")
+    votacao_orientacoes = obter_dados_com_cache_por_id(
+        "votacao_orientacoes.json",
+        base_ids=ids_votacoes_lista,
+        funcao_busca_item=agregar_orientacoes_votacoes_por_ids,
+        checkpoint_intervalo=500
+    )
+
 
 if __name__ == "__main__":
     executar_processo()
