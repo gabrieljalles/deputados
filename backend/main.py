@@ -1,3 +1,6 @@
+from rich.console import Console
+from rich.table import Table
+
 from analise_estatistica import (
     calcular_desvio_padrao_gastos, 
     calcular_soma_total_valor_liquido, 
@@ -7,9 +10,10 @@ from analise_estatistica import (
 )
 from api_service import (
     buscar_todas_legislaturas_consolidado,
-    buscar_tipos_eventos
+    buscar_tipos_eventos,
+    buscar_tipos_proposicoes
 )
-from backend.p_eventos_pontuacoes import EVENTOS_PONTUACAO
+from parametros.p_eventos_pontuacoes import EVENTOS_PONTUACAO
 from file_handler import obter_dados_com_cache_por_arquivo, salvar_em_json, obter_dados_com_cache_por_id
 from services import (
     agregar_deputados_por_legislaturas, 
@@ -21,8 +25,15 @@ from services import (
     agregar_presencas_eventos,
     agregar_votacoes_eventos,
     agregar_orientacoes_votacoes,
-    agregar_votos_votacoes_por_ids
+    agregar_votos_votacoes_por_ids,
+    agregar_proposicoes_por_legislaturas,
+    agregar_autores_proposicoes_por_ids,
+    agregar_frentes_deputados_por_ids,
+    agregar_orgaos_deputados_por_ids
 )
+
+console = Console()
+
 import os
 import json
 
@@ -34,12 +45,9 @@ limite_legislaturas = 1 # Define quantas legislaturas a partir da última deve s
 
 
 # ---------------------------------------
-
-
-
-
 def executar_processo():
-    print("Iniciando processo de coleta de dados...")
+    from rich.panel import Panel
+    console.print(Panel("[bold yellow]→ Iniciando processo de coleta de dados...[/bold yellow]", expand=False))
     
     # 0. Legislaturas Consolidadas
     legislaturas_consolidado = obter_dados_com_cache_por_arquivo(
@@ -53,6 +61,12 @@ def executar_processo():
         "eventostipagem.json",
         buscar_tipos_eventos,
         eventos_pontuacao=EVENTOS_PONTUACAO
+    )
+
+    # 0.2 Tipos de Proposições
+    tipos_proposicoes = obter_dados_com_cache_por_arquivo(
+        "proposicoes_tipo.json",
+        buscar_tipos_proposicoes
     )
     
     # 1. Lista de Deputados por Legislatura (Agregada no services)
@@ -96,7 +110,8 @@ def executar_processo():
         "evento_presencas.json",
         base_ids=ids_eventos_lista,
         funcao_busca_item=agregar_presencas_eventos,
-        checkpoint_intervalo=500 # Salva a cada 500 IDs para evitar perda de progresso
+        checkpoint_intervalo=500,
+        campo_id="idEvento"
     )
 
     # 4.2 Votações nos Eventos (Novo)
@@ -104,10 +119,17 @@ def executar_processo():
         "eventos_votacoes.json",
         base_ids=ids_eventos_lista,
         funcao_busca_item=agregar_votacoes_eventos,
-        checkpoint_intervalo=500
+        checkpoint_intervalo=500,
+        campo_id="idEvento"
     )
 
-    # 4.3 Extraímos IDs únicos de votações a partir de eventos_votacoes
+    # 4.3 Proposições por Legislatura (cache por ano em raw/proposicoes-{ano}.json)
+    proposicoes = agregar_proposicoes_por_legislaturas(
+        legislaturas_consolidado=legislaturas_consolidado,
+        limite_legislaturas=limite_legislaturas
+    )
+
+    # 4.4 Extraímos IDs únicos de votações a partir de eventos_votacoes
     ids_votacoes_lista = []
     if eventos_votacoes and 'dados' in eventos_votacoes:
         for ev in eventos_votacoes['dados']:
@@ -118,22 +140,61 @@ def executar_processo():
     # Remove duplicatas mantendo ordem
     ids_votacoes_lista = list(dict.fromkeys(ids_votacoes_lista))
 
-    # 4.3 Votos das Votações
+    # 4.5 Votos das Votações
     votacao_votos = obter_dados_com_cache_por_id(
         "votacao_votos.json",
         base_ids=ids_votacoes_lista,
         funcao_busca_item=agregar_votos_votacoes_por_ids,
-        checkpoint_intervalo=1000
+        checkpoint_intervalo=1000,
+        campo_id="idVotacao"
     )
 
-    # 4.4 Orientações de Votação
+    # 4.6 Orientações de Votação
     votacao_orientacoes = obter_dados_com_cache_por_id(
         "votacao_orientacoes.json",
         base_ids=ids_votacoes_lista,
         funcao_busca_item=agregar_orientacoes_votacoes_por_ids,
-        checkpoint_intervalo=1000
+        checkpoint_intervalo=1000,
+        campo_id="idVotacao"
     )
 
+    # 5. Autores das Proposições
+    # Extraímos IDs únicos de proposições coletadas
+    ids_proposicoes_lista = []
+    if proposicoes and 'dados' in proposicoes:
+        ids_proposicoes_lista = [p['id'] for p in proposicoes['dados'] if 'id' in p]
+        # Remove duplicatas
+        ids_proposicoes_lista = list(dict.fromkeys(ids_proposicoes_lista))
+
+    proposicoes_autores = obter_dados_com_cache_por_id(
+        "proposicoes_autores.json",
+        base_ids=ids_proposicoes_lista,
+        funcao_busca_item=agregar_autores_proposicoes_por_ids,
+        checkpoint_intervalo=1000,
+        campo_id="idProposicao"
+    )
+
+    # 6. Frentes Parlamentares dos Deputados
+    deputados_frentes = obter_dados_com_cache_por_id(
+        "deputados_frentes.json",
+        base_ids=ids_deputados,
+        funcao_busca_item=agregar_frentes_deputados_por_ids,
+        checkpoint_intervalo=500,
+        campo_id="idDeputado"
+    )
+
+    # 7. Órgãos dos Deputados
+    deputados_orgaos = obter_dados_com_cache_por_id(
+        "deputados_orgaos.json",
+        base_ids=ids_deputados,
+        funcao_busca_item=agregar_orgaos_deputados_por_ids,
+        checkpoint_intervalo=500,
+        campo_id="idDeputado"
+    )
+
+
+def criar_tabelas():
+    pass
 
 if __name__ == "__main__":
     executar_processo()

@@ -1,10 +1,13 @@
 import requests
 import time
 
-def realizar_requisicao_com_retry(url, headers=None, params=None, max_retries=3, timeout=30):
+def realizar_requisicao_com_retry(url, headers=None, params=None, max_retries=3, timeout=30, ignore_errors=None):
     """
     Realiza uma requisição GET com mecanismo de retentativa em caso de erros temporários (como 504).
     """
+    if ignore_errors is None:
+        ignore_errors = []
+        
     tentativa = 0
     while tentativa < max_retries:
         try:
@@ -15,6 +18,10 @@ def realizar_requisicao_com_retry(url, headers=None, params=None, max_retries=3,
             tentativa += 1
             status_code = getattr(e.response, 'status_code', 'N/A')
             
+            # Verificação de erros ignoráveis
+            if isinstance(e, requests.exceptions.HTTPError) and status_code in ignore_errors:
+                return None
+
             # Se for erro 4xx (exceto 429), provavelmente não adianta tentar de novo
             if isinstance(e, requests.exceptions.HTTPError) and 400 <= status_code < 500 and status_code != 429:
                 print(f"Erro fatal {status_code}: {e}")
@@ -286,6 +293,79 @@ def buscar_votos_votacao(id_votacao):
         return response.json()
     except Exception as e:
         print(f"Erro ao buscar votos da votação {id_votacao}: {e}")
+        return None
+
+def buscar_proposicoes_arquivo_anual(ano):
+    """
+    Faz o download do arquivo consolidado anual de proposições no formato JSON.
+    URL: http://dadosabertos.camara.leg.br/arquivos/proposicoes/json/proposicoes-{ano}.json
+    """
+    url = f"http://dadosabertos.camara.leg.br/arquivos/proposicoes/json/proposicoes-{ano}.json"
+
+    try:
+        response = realizar_requisicao_com_retry(url, ignore_errors=[404])
+        if response is None:
+            return None
+        dados = response.json()
+        total = len(dados.get('dados', []))
+        return dados
+    except Exception:
+        return None
+
+def buscar_autores_proposicao(id_proposicao):
+    """
+    Consome a API da Câmara dos Deputados para obter os autores de uma proposição específica.
+    """
+    url = f"https://dadosabertos.camara.leg.br/api/v2/proposicoes/{id_proposicao}/autores"
+    headers = {'accept': 'application/json'}
+    
+    try:
+        response = realizar_requisicao_com_retry(url, headers=headers)
+        return response.json()
+    except Exception as e:
+        print(f"Erro ao buscar autores da proposição {id_proposicao}: {e}")
+        return None
+
+def buscar_frentes_deputado(id_deputado):
+    """
+    Consome a API da Câmara dos Deputados para obter as frentes parlamentares de um deputado específico.
+    """
+    url = f"https://dadosabertos.camara.leg.br/api/v2/deputados/{id_deputado}/frentes"
+    headers = {'accept': 'application/json'}
+    
+    try:
+        response = realizar_requisicao_com_retry(url, headers=headers)
+        return response.json()
+    except Exception as e:
+        print(f"Erro ao buscar frentes do deputado {id_deputado}: {e}")
+        return None
+
+def buscar_orgaos_deputado(id_deputado):
+    """
+    Consome a API da Câmara dos Deputados para obter os órgãos de um deputado específico.
+    """
+    url = f"https://dadosabertos.camara.leg.br/api/v2/deputados/{id_deputado}/orgaos?ordem=ASC&ordenarPor=dataInicio"
+    headers = {'accept': 'application/json'}
+    
+    try:
+        response = realizar_requisicao_com_retry(url, headers=headers)
+        return response.json()
+    except Exception as e:
+        print(f"Erro ao buscar órgãos do deputado {id_deputado}: {e}")
+        return None
+
+def buscar_tipos_proposicoes():
+    """
+    Consome a API de referências para obter todas as siglas de tipos de proposições.
+    """
+    url = "https://dadosabertos.camara.leg.br/api/v2/referencias/proposicoes/siglaTipo"
+    headers = {'accept': 'application/json'}
+
+    try:
+        response = realizar_requisicao_com_retry(url, headers=headers)
+        return response.json()
+    except Exception as e:
+        print(f"Erro ao buscar tipos de proposições: {e}")
         return None
 
 def buscar_tipos_eventos(eventos_pontuacao=None):

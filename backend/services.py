@@ -9,10 +9,15 @@ from api_service import (
     buscar_presencas_evento,
     buscar_votacoes_evento,
     buscar_orientacoes_votacao,
-    buscar_votos_votacao
+    buscar_votos_votacao,
+    buscar_proposicoes_arquivo_anual,
+    buscar_autores_proposicao,
+    buscar_frentes_deputado,
+    buscar_orgaos_deputado
 )
+from file_handler import obter_dados_com_cache_por_arquivo, salvar_em_json
 
-def agregar_votos_votacoes_por_ids(base_ids, max_workers=20):
+def agregar_votos_votacoes_por_ids(base_ids, max_workers=10):
     """
     Busca os votos individuais de cada votação de forma concorrente.
     Recebe diretamente uma lista de IDs de votação.
@@ -22,24 +27,42 @@ def agregar_votos_votacoes_por_ids(base_ids, max_workers=20):
     todos_votos = []
 
     def task_votos(id_votacao):
-        resultado = buscar_votos_votacao(id_votacao)
-        votos_lista = []
-        if resultado and 'dados' in resultado:
-            for voto in resultado['dados']:
-                voto['idVotacao'] = id_votacao
-                votos_lista.append(voto)
-        return votos_lista
+        try:
+            resultado = buscar_votos_votacao(id_votacao)
+            votos_lista = []
+            if resultado and 'dados' in resultado:
+                for voto in resultado['dados']:
+                    voto['idVotacao'] = id_votacao
+                    votos_lista.append(voto)
+            return votos_lista
+        except Exception as e:
+            print(f"Erro na tarefa de votos para {id_votacao}: {e}")
+            return []
 
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = {executor.submit(task_votos, vid): vid for vid in base_ids}
+    try:
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(task_votos, vid): vid for vid in base_ids}
 
-        for future in as_completed(futures):
-            vid = futures[future]
             try:
-                votos_retornados = future.result()
-                todos_votos.extend(votos_retornados)
-            except Exception as e:
-                print(f"Erro ao processar votos da votação {vid}: {e}")
+                for future in as_completed(futures):
+                    vid = futures[future]
+                    try:
+                        votos_retornados = future.result()
+                        todos_votos.extend(votos_retornados)
+                    except Exception as e:
+                        print(f"Erro ao processar votos da votação {vid}: {e}")
+            except KeyboardInterrupt:
+                print("\nInterrupção detectada! Cancelando tarefas de votos pendentes...")
+                for f in futures:
+                    f.cancel()
+                raise
+    except KeyboardInterrupt:
+        print("Finalizando busca de votos precocemente devido à interrupção.")
+        # Retorna o que já foi coletado em vez de quebrar tudo, 
+        # ou pode relançar se o main.py souber lidar.
+        # Aqui vamos relançar para manter o comportamento original de parada, 
+        # mas agora o executor fechará corretamente.
+        raise
 
     print(f"Busca de votos finalizada. Total: {len(todos_votos)}")
     return {"dados": todos_votos}
@@ -97,27 +120,183 @@ def agregar_orientacoes_votacoes_por_ids(base_ids, max_workers=20):
     todas_orientacoes = []
 
     def task_orientacoes(id_votacao):
-        resultado = buscar_orientacoes_votacao(id_votacao)
-        orientacoes_voto = []
-        if resultado and 'dados' in resultado:
-            for orientacao in resultado['dados']:
-                orientacao['idVotacao'] = id_votacao
-                orientacoes_voto.append(orientacao)
-        return orientacoes_voto
+        try:
+            resultado = buscar_orientacoes_votacao(id_votacao)
+            orientacoes_voto = []
+            if resultado and 'dados' in resultado:
+                for orientacao in resultado['dados']:
+                    orientacao['idVotacao'] = id_votacao
+                    orientacoes_voto.append(orientacao)
+            return orientacoes_voto
+        except Exception as e:
+            print(f"Erro na tarefa de orientações para {id_votacao}: {e}")
+            return []
 
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = {executor.submit(task_orientacoes, vid): vid for vid in base_ids}
-        
-        for future in as_completed(futures):
+    try:
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(task_orientacoes, vid): vid for vid in base_ids}
+            
             try:
-                orientacoes_retornadas = future.result()
-                todas_orientacoes.extend(orientacoes_retornadas)
-            except Exception as e:
-                print(f"Erro ao processar orientações: {e}")
+                for future in as_completed(futures):
+                    try:
+                        orientacoes_retornadas = future.result()
+                        todas_orientacoes.extend(orientacoes_retornadas)
+                    except Exception as e:
+                        print(f"Erro ao processar orientações: {e}")
+            except KeyboardInterrupt:
+                print("\nInterrupção detectada! Cancelando tarefas de orientações...")
+                for f in futures:
+                    f.cancel()
+                raise
+    except KeyboardInterrupt:
+        raise
 
     return {"dados": todas_orientacoes}
 
-def agregar_despesas_deputados(lista_ids_deputados, ids_legislaturas=None, max_workers=20):
+def agregar_autores_proposicoes_por_ids(base_ids, max_workers=10):
+    """
+    Busca os autores de cada proposição de forma concorrente.
+    Recebe uma lista de IDs de proposição.
+    """
+    print(f"Buscando autores para {len(base_ids)} proposição(ões) com {max_workers} threads...")
+    todos_autores = []
+
+    def task_autores(id_proposicao):
+        try:
+            resultado = buscar_autores_proposicao(id_proposicao)
+            autores_lista = []
+            if resultado and 'dados' in resultado:
+                for autor in resultado['dados']:
+                    autor['idProposicao'] = id_proposicao
+                    
+                    uri = autor.get('uri', '')
+                    if uri and '/deputados/' in uri:
+                        id_responsavel = uri.split('/')[-1]
+                        if id_responsavel.isdigit():
+                            autor['idResponsavel'] = int(id_responsavel)
+                        else:
+                            autor['idResponsavel'] = None
+                    else:
+                        autor['idResponsavel'] = None
+                        
+                    autores_lista.append(autor)
+            return autores_lista
+        except Exception as e:
+            print(f"Erro na tarefa de autores para {id_proposicao}: {e}")
+            return []
+
+    try:
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(task_autores, pid): pid for pid in base_ids}
+
+            try:
+                for future in as_completed(futures):
+                    pid = futures[future]
+                    try:
+                        autores_retornados = future.result()
+                        todos_autores.extend(autores_retornados)
+                    except Exception as e:
+                        print(f"Erro ao processar autores da proposição {pid}: {e}")
+            except KeyboardInterrupt:
+                print("\nInterrupção detectada! Cancelando tarefas de autores...")
+                for f in futures:
+                    f.cancel()
+                raise
+    except KeyboardInterrupt:
+        raise
+
+    print(f"Busca de autores finalizada. Total: {len(todos_autores)}")
+    return {"dados": todos_autores}
+
+def agregar_frentes_deputados_por_ids(base_ids, max_workers=10):
+    """
+    Busca as frentes parlamentares de cada deputado de forma concorrente.
+    Recebe uma lista de IDs de deputado.
+    """
+    print(f"Buscando frentes para {len(base_ids)} deputado(s) com {max_workers} threads...")
+    todas_frentes = []
+
+    def task_frentes(id_deputado):
+        try:
+            resultado = buscar_frentes_deputado(id_deputado)
+            frentes_lista = []
+            if resultado and 'dados' in resultado:
+                for frente in resultado['dados']:
+                    frente['idDeputado'] = id_deputado
+                    frentes_lista.append(frente)
+            return frentes_lista
+        except Exception as e:
+            print(f"Erro na tarefa de frentes para {id_deputado}: {e}")
+            return []
+
+    try:
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(task_frentes, did): did for did in base_ids}
+
+            try:
+                for future in as_completed(futures):
+                    did = futures[future]
+                    try:
+                        frentes_retornadas = future.result()
+                        todas_frentes.extend(frentes_retornadas)
+                    except Exception as e:
+                        print(f"Erro ao processar frentes do deputado {did}: {e}")
+            except KeyboardInterrupt:
+                print("\nInterrupção detectada! Cancelando tarefas de frentes...")
+                for f in futures:
+                    f.cancel()
+                raise
+    except KeyboardInterrupt:
+        raise
+
+    print(f"Busca de frentes finalizada. Total: {len(todas_frentes)}")
+    return {"dados": todas_frentes}
+
+def agregar_orgaos_deputados_por_ids(base_ids, max_workers=10):
+    """
+    Busca os órgãos de cada deputado de forma concorrente.
+    Recebe uma lista de IDs de deputado.
+    """
+    print(f"Buscando órgãos para {len(base_ids)} deputado(s) com {max_workers} threads...")
+    todos_orgaos = []
+
+    def task_orgaos(id_deputado):
+        try:
+            resultado = buscar_orgaos_deputado(id_deputado)
+            orgaos_lista = []
+            if resultado and 'dados' in resultado:
+                for orgao in resultado['dados']:
+                    orgao['idDeputado'] = id_deputado
+                    orgaos_lista.append(orgao)
+            return orgaos_lista
+        except Exception as e:
+            print(f"Erro na tarefa de órgãos para {id_deputado}: {e}")
+            return []
+
+    try:
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(task_orgaos, did): did for did in base_ids}
+
+            try:
+                for future in as_completed(futures):
+                    did = futures[future]
+                    try:
+                        orgaos_retornados = future.result()
+                        todos_orgaos.extend(orgaos_retornados)
+                    except Exception as e:
+                        print(f"Erro ao processar órgãos do deputado {did}: {e}")
+            except KeyboardInterrupt:
+                print("\nInterrupção detectada! Cancelando tarefas de órgãos...")
+                for f in futures:
+                    f.cancel()
+                raise
+    except KeyboardInterrupt:
+        raise
+
+    print(f"Busca de órgãos finalizada. Total: {len(todos_orgaos)}")
+    return {"dados": todos_orgaos}
+
+def agregar_despesas_deputados(lista_ids_deputados, ids_legislaturas=None, max_workers=10):
     """
     Busca todas as despesas para uma lista de IDs de deputados de forma concorrente.
     Se `ids_legislaturas` for fornecido (lista), busca apenas despesas dessas legislaturas.
@@ -155,29 +334,38 @@ def agregar_despesas_deputados(lista_ids_deputados, ids_legislaturas=None, max_w
             despesas = resultado['dados']
         return despesas
 
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        future_to_tarefa = {
-            executor.submit(buscar_despesas_tarefa, id_dep, id_leg): (id_dep, id_leg)
-            for id_dep, id_leg in tarefas
-        }
+    try:
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_tarefa = {
+                executor.submit(buscar_despesas_tarefa, id_dep, id_leg): (id_dep, id_leg)
+                for id_dep, id_leg in tarefas
+            }
 
-        concluidos = 0
-        for future in as_completed(future_to_tarefa):
-            concluidos += 1
-            id_dep, id_leg = future_to_tarefa[future]
+            concluidos = 0
             try:
-                despesas = future.result()
-                todas_despesas_consolidadas.extend(despesas)
-            except Exception as exc:
-                print(f"\nErro ao buscar despesas do deputado {id_dep} (leg {id_leg}): {exc}")
+                for future in as_completed(future_to_tarefa):
+                    concluidos += 1
+                    id_dep, id_leg = future_to_tarefa[future]
+                    try:
+                        despesas = future.result()
+                        todas_despesas_consolidadas.extend(despesas)
+                    except Exception as exc:
+                        print(f"\nErro ao buscar despesas do deputado {id_dep} (leg {id_leg}): {exc}")
 
-            if concluidos % 10 == 0 or concluidos == total_tarefas:
-                print(f"Progresso: {concluidos}/{total_tarefas} tarefas concluídas...", end='\r')
+                    if concluidos % 10 == 0 or concluidos == total_tarefas:
+                        print(f"Progresso: {concluidos}/{total_tarefas} tarefas concluídas...", end='\r')
+            except KeyboardInterrupt:
+                print("\nInterrupção detectada! Cancelando tarefas de despesas pendentes...")
+                for f in future_to_tarefa:
+                    f.cancel()
+                raise
+    except KeyboardInterrupt:
+        raise
 
     print(f"\nFinalizado! Total de registros de despesas: {len(todas_despesas_consolidadas)}")
     return {"dados": todas_despesas_consolidadas}
 
-def agregar_deputados_por_legislaturas(legislaturas_consolidado, limite_legislaturas=20):
+def agregar_deputados_por_legislaturas(legislaturas_consolidado, limite_legislaturas=10):
     """
     Extrai os IDs das legislaturas do JSON consolidado e busca 
     os deputados para cada uma, consolidando os resultados.
@@ -258,7 +446,7 @@ def agregar_detalhes_deputados(dados_deputados, max_workers=20):
     print(f"\nBusca de detalhes concluída! Total coletado: {len(todos_detalhes)}")
     return {"dados": todos_detalhes}
 
-def agregar_presencas_eventos(lista_ids_eventos, max_workers=20):
+def agregar_presencas_eventos(lista_ids_eventos, max_workers=10):
     """
     Busca a lista de presença (deputados) para cada ID de evento de forma concorrente.
     Retorna uma lista onde cada item contém o ID do evento e a lista de presentes.
@@ -296,7 +484,7 @@ def agregar_presencas_eventos(lista_ids_eventos, max_workers=20):
     print(f"\nBusca de presenças concluída! Total de eventos com presença: {len(todos_resultados)}")
     return {"dados": todos_resultados}
 
-def agregar_votacoes_eventos(lista_ids_eventos, max_workers=20):
+def agregar_votacoes_eventos(lista_ids_eventos, max_workers=10):
     """
     Busca as votações ocorridas em cada ID de evento de forma concorrente.
     Retorna uma lista onde cada item contém o ID do evento e as votações.
@@ -332,7 +520,7 @@ def agregar_votacoes_eventos(lista_ids_eventos, max_workers=20):
     print(f"\nBusca de votações concluída! Total de eventos com votações: {len(todos_resultados)}")
     return {"dados": todos_resultados}
 
-def agregar_eventos_por_legislaturas(legislaturas_consolidado, limite_legislaturas=None, max_workers=20):
+def agregar_eventos_por_legislaturas(legislaturas_consolidado, limite_legislaturas=None, max_workers=10):
     """
     Busca todos os eventos para cada legislatura de forma concorrente,
     extraindo dataInicio e dataFim do JSON consolidado.
@@ -391,7 +579,7 @@ def agregar_eventos_por_legislaturas(legislaturas_consolidado, limite_legislatur
     print(f"\nTotal de eventos coletados: {len(todos_eventos)}")
     return {"dados": todos_eventos}
 
-def agregar_detalhes_eventos_concorrente(lista_ids_eventos, max_workers=20):
+def agregar_detalhes_eventos_concorrente(lista_ids_eventos, max_workers=10):
     """
     Busca os detalhes completos de uma lista de IDs de eventos de forma concorrente.
     Retorna uma lista de resultados (dados do evento).
@@ -420,4 +608,54 @@ def agregar_detalhes_eventos_concorrente(lista_ids_eventos, max_workers=20):
                 print(f"Progresso: {concluidos}/{total} processados... ", end='\r')
 
     return {"dados": todos_detalhes}
+
+def agregar_proposicoes_por_legislaturas(legislaturas_consolidado, limite_legislaturas=None):
+    """
+    Baixa os arquivos consolidados anuais de proposições para cada ano coberto pelas
+    legislaturas selecionadas. Cada ano é cacheado individualmente como
+    'proposicoes-{ano}.json'. Ao final, combina todos os dados em uma única lista
+    e salva o resultado consolidado em 'proposicoes.json'.
+    """
+    if not legislaturas_consolidado or 'dados' not in legislaturas_consolidado:
+        print("Erro: JSON de legislaturas inválido.")
+        return None
+
+    legislaturas = legislaturas_consolidado['dados']
+
+    chave_id = 'idLegislatura' if legislaturas and 'idLegislatura' in legislaturas[0] else 'id'
+
+    legislaturas_ordenadas = sorted(legislaturas, key=lambda x: x.get(chave_id, 0), reverse=True)
+
+    if limite_legislaturas:
+        legislaturas_ordenadas = legislaturas_ordenadas[:limite_legislaturas]
+
+    # Coleta todos os anos únicos cobertos pelas legislaturas selecionadas
+    anos = set()
+    ano_atual = 2026 # Ano atual conforme ambiente
+    for leg in legislaturas_ordenadas:
+        data_inicio = leg.get('dataInicio', '')
+        data_fim = leg.get('dataFim', '')
+        if data_inicio and data_fim:
+            ano_inicio = int(data_inicio[:4])
+            ano_fim = int(data_fim[:4])
+            for ano in range(ano_inicio, ano_fim + 1):
+                if ano <= ano_atual:
+                    anos.add(ano)
+
+    anos_ordenados = sorted(anos, reverse=True)
+
+    todas_proposicoes = []
+
+    for ano in anos_ordenados:
+        resultado = obter_dados_com_cache_por_arquivo(
+            f"proposicoes-{ano}.json",
+            buscar_proposicoes_arquivo_anual,
+            ano=ano
+        )
+        if resultado and 'dados' in resultado:
+            todas_proposicoes.extend(resultado['dados'])
+
+    consolidado = {"dados": todas_proposicoes}
+    salvar_em_json(consolidado, "proposicoes.json")
+    return consolidado
 
