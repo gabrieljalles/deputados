@@ -53,6 +53,22 @@ def init_db():
         )
     ''')
 
+    # Tabela de Despesas Condensadas Mensais
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS deputados_despesas_legislatura_mensal (
+            id_registro INTEGER PRIMARY KEY AUTOINCREMENT,
+            idLegislatura TEXT,
+            ano TEXT,
+            mes TEXT,
+            idDeputado TEXT,
+            tipoDespesa TEXT,
+            somaValorLiquido REAL,
+            rankGastador INTEGER,
+            rankEconomizador INTEGER,
+            UNIQUE(idLegislatura, ano, mes, idDeputado, tipoDespesa)
+        )
+    ''')
+
     # Tabela de Despesas Condensadas GERAIS (Total por Deputado/Legislatura)
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS deputados_despesas_legislatura_condensado (

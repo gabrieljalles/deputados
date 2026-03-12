@@ -15,7 +15,7 @@ from api_service import (
     buscar_frentes_deputado,
     buscar_orgaos_deputado
 )
-from file_handler import obter_dados_com_cache_por_arquivo, salvar_em_json
+from file_handler import obter_dados_com_cache_por_arquivo, salvar_em_json, salvar_em_csv
 
 def agregar_votos_votacoes_por_ids(base_ids, max_workers=10):
     """
@@ -296,7 +296,7 @@ def agregar_orgaos_deputados_por_ids(base_ids, max_workers=10):
     print(f"Busca de órgãos finalizada. Total: {len(todos_orgaos)}")
     return {"dados": todos_orgaos}
 
-def agregar_despesas_deputados(lista_ids_deputados, ids_legislaturas=None, max_workers=10):
+def agregar_despesas_deputados(lista_ids_deputados, ids_legislaturas=None, max_workers=5):
     """
     Busca todas as despesas para uma lista de IDs de deputados de forma concorrente.
     Se `ids_legislaturas` for fornecido (lista), busca apenas despesas dessas legislaturas.
@@ -659,3 +659,8 @@ def agregar_proposicoes_por_legislaturas(legislaturas_consolidado, limite_legisl
     salvar_em_json(consolidado, "proposicoes.json")
     return consolidado
 
+# Execuções de teste
+# if __name__ == "__main__":
+   
+# #    despesas_deputados = agregar_despesas_deputados(["204379"], ids_legislaturas=57, max_workers=10)
+# #    salvar_em_csv(despesas_deputados, "despesas_deputado_204379_leg57.csv")

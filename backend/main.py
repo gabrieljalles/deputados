@@ -12,7 +12,9 @@ from analise_estatistica import (
 from api_service import (
     buscar_todas_legislaturas_consolidado,
     buscar_tipos_eventos,
-    buscar_tipos_proposicoes
+    buscar_tipos_proposicoes,
+    buscar_deputado_funcionarios,
+    buscar_funcionarios_salarios
 )
 from parametros.p_eventos_pontuacoes import EVENTOS_PONTUACAO
 from file_handler import obter_dados_com_cache_por_arquivo, salvar_em_json, obter_dados_com_cache_por_id
@@ -37,7 +39,8 @@ from database.populate import (
     popular_deputados, 
     popular_despesas_legislatura, 
     popular_despesas_totais_condensadas,
-    popular_estatisticas_gastos
+    popular_estatisticas_gastos,
+    popular_despesas_mensais
 )
 
 console = Console()
@@ -71,6 +74,30 @@ def executar_processo():
     tipos_proposicoes = obter_dados_com_cache_por_arquivo(
         "proposicoes_tipo.json",
         buscar_tipos_proposicoes
+    )
+
+    # 0.3 Funcionários dos Deputados
+    deputado_funcionarios = obter_dados_com_cache_por_arquivo(
+        "deputados_funcionarios.json",
+        buscar_deputado_funcionarios
+    )
+
+    # 0.4 Salários dos Funcionários (Web Scraping)
+    # Calcula os anos da legislatura com base em dataInicio e dataFim
+    legislaturas_ordenadas = sorted(legislaturas_consolidado['dados'], key=lambda x: x['idLegislatura'], reverse=True)
+    legislaturas_selecionadas = legislaturas_ordenadas[:limite_legislaturas]
+    anos_legislatura = set()
+    for leg in legislaturas_selecionadas:
+        ano_inicio = int(leg['dataInicio'][:4])
+        ano_fim = int(leg['dataFim'][:4])
+        for ano in range(ano_inicio, ano_fim + 1):
+            anos_legislatura.add(str(ano))
+    anos_legislatura = sorted(anos_legislatura)
+    
+    funcionarios_salarios = obter_dados_com_cache_por_arquivo(
+        "deputados_funcionarios_salarios.json",
+        buscar_funcionarios_salarios,
+        anos_legislatura=anos_legislatura
     )
     
     # 1. Lista de Deputados por Legislatura (Agregada no services)
@@ -209,9 +236,12 @@ def popular_tabelas():
     console.print("[bold cyan]→ Populando gastos totais condensados por deputado...[/bold cyan]")
     popular_despesas_totais_condensadas()
     
+    console.print("[bold cyan]→ Populando despesas mensais por categoria...[/bold cyan]")
+    popular_despesas_mensais()
+    
     console.print("[bold cyan]→ Calculando e populando estatísticas de gastos...[/bold cyan]")
     popular_estatisticas_gastos()
 
 if __name__ == "__main__":
-    # executar_processo()
+    executar_processo()
     popular_tabelas()

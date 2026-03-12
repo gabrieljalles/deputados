@@ -69,6 +69,71 @@ def salvar_em_json(dados, nome_arquivo, diretorio="raw"):
     except (IOError, OSError) as e:
         print(f"Erro ao salvar o arquivo: {e}")
 
+def salvar_em_csv(dados, nome_arquivo, diretorio="raw"):
+    """
+    Salva os dados fornecidos em um arquivo CSV em um diretório específico.
+    Assume que 'dados' é um dicionário com uma chave 'dados' contendo uma lista de dicionários,
+    ou diretamente uma lista de dicionários.
+    """
+    import csv
+
+    if not dados:
+        print("Nenhum dado para salvar em CSV.")
+        return
+
+    # Normaliza os dados: se for o padrão da API (dict com chave 'dados'), extrai a lista
+    lista_dados = dados.get('dados', []) if isinstance(dados, dict) else dados
+
+    if not lista_dados or not isinstance(lista_dados, list):
+        print("Formato de dados inválido para salvar em CSV.")
+        return
+
+    try:
+        if not os.path.exists(diretorio):
+            os.makedirs(diretorio)
+            print(f"Diretório '{diretorio}' criado.")
+
+        caminho_completo = os.path.join(diretorio, nome_arquivo)
+        if not caminho_completo.endswith('.csv'):
+            caminho_completo += '.csv'
+
+        # Pega as chaves do primeiro dicionário como cabeçalho
+        colunas = lista_dados[0].keys()
+
+        with open(caminho_completo, 'w', encoding='utf-8-sig', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=colunas, delimiter=';')
+            writer.writeheader()
+            writer.writerows(lista_dados)
+        
+        console.print(f"[bold green]✔[/bold green] Arquivo salvo em: [white]{caminho_completo}[/white]")
+
+    except Exception as e:
+        print(f"Erro ao salvar CSV: {e}")
+
+def converter_json_para_csv(nome_arquivo_json, nome_arquivo_csv=None, diretorio_origem="raw", diretorio_destino="processed"):
+    """
+    Lê um arquivo JSON e o converte para CSV usando a função salvar_em_csv.
+    """
+    caminho_json = os.path.join(diretorio_origem, nome_arquivo_json)
+    
+    if not os.path.exists(caminho_json):
+        print(f"Erro: Arquivo JSON '{caminho_json}' não encontrado.")
+        return
+
+    try:
+        with open(caminho_json, 'r', encoding='utf-8') as f:
+            dados = json.load(f)
+        
+        if not nome_arquivo_csv:
+            nome_arquivo_csv = nome_arquivo_json.replace('.json', '.csv')
+            if not nome_arquivo_csv.endswith('.csv'):
+                nome_arquivo_csv += '.csv'
+        
+        salvar_em_csv(dados, nome_arquivo_csv, diretorio_destino)
+        
+    except Exception as e:
+        print(f"Erro na conversão de JSON para CSV: {e}")
+
 def obter_dados_com_cache_por_id(nome_arquivo, base_ids, funcao_busca_item, diretorio="raw", checkpoint_intervalo=100, campo_id="id", **kwargs):
     """
     Cache inteligente por ID.
@@ -175,3 +240,6 @@ def obter_dados_com_cache_por_id(nome_arquivo, base_ids, funcao_busca_item, dire
         )
 
     return {"dados": dados_existentes + novos_dados}
+
+
+converter_json_para_csv("deputados_despesas.json", "testando.csv", diretorio_origem="raw", diretorio_destino="raw")

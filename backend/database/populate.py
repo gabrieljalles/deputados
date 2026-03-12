@@ -241,5 +241,88 @@ def popular_estatisticas_gastos():
     except Exception as e:
         console.print(f"[bold red]Erro ao calcular estatísticas:[/bold red] {e}")
 
+def popular_despesas_mensais():
+    """Lê o arquivo raw/deputados_despesas.json, condensa por mês/ano e insere no banco."""
+    caminho_json = os.path.join(os.path.dirname(__file__), '..', 'raw', 'deputados_despesas.json')
+    
+    if not os.path.exists(caminho_json):
+        console.print(f"[bold red]Erro:[/bold red] Arquivo {caminho_json} não encontrado.")
+        return
+
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+
+        # Verificar se a tabela já tem dados
+        cursor.execute("SELECT COUNT(*) FROM deputados_despesas_legislatura_mensal")
+        count = cursor.fetchone()[0]
+        
+        if count > 0:
+            console.print(f"[bold blue]ℹ [despesas_mensais][/bold blue] Já populada com {count} registros (ignorado).")
+            conn.close()
+            return
+
+        with open(caminho_json, 'r', encoding='utf-8') as f:
+            conteudo = json.load(f)
+            dados_brutos = conteudo.get('dados', [])
+            
+        # Dicionário: {(idLeg, ano, mes, idDep, tipo): soma}
+        condensado = {}
+        
+        console.print(f"[yellow]→ Processando {len(dados_brutos)} registros brutos para despesas mensais...[/yellow]")
+        for d in dados_brutos:
+            id_leg = str(d.get('idLegislatura', '57'))
+            id_dep = str(d.get('idDeputadoDono') or d.get('idDeputado') or 'Desconhecido')
+            tipo = d.get('tipoDespesa', 'Outros')
+            valor = float(d.get('valorLiquido', 0) or 0)
+            ano = d.get('ano')
+            mes = d.get('mes')
+            
+            if ano is None or mes is None:
+                continue
+
+            chave = (id_leg, ano, mes, id_dep, tipo)
+            condensado[chave] = condensado.get(chave, 0) + valor
+        
+        for (id_leg, ano, mes, id_dep, tipo), soma in condensado.items():
+            cursor.execute('''
+                INSERT OR REPLACE INTO deputados_despesas_legislatura_mensal 
+                (idLegislatura, ano, mes, idDeputado, tipoDespesa, somaValorLiquido)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (id_leg, ano, mes, id_dep, tipo, soma))
+            
+        conn.commit()
+
+        console.print("[yellow]→ Calculando rankings mensais por categoria...[/yellow]")
+        
+        # Rankings por (idLegislatura, ano, mes, tipoDespesa)
+        cursor.execute("SELECT DISTINCT idLegislatura, ano, mes, tipoDespesa FROM deputados_despesas_legislatura_mensal")
+        categorias = cursor.fetchall()
+        
+        for leg, ano, mes, tipo in categorias:
+            cursor.execute('''
+                SELECT id_registro FROM deputados_despesas_legislatura_mensal 
+                WHERE idLegislatura = ? AND ano = ? AND mes = ? AND tipoDespesa = ?
+                ORDER BY somaValorLiquido DESC
+            ''', (leg, ano, mes, tipo))
+            ids_gastadores = cursor.fetchall()
+            
+            total = len(ids_gastadores)
+            for i, (id_reg,) in enumerate(ids_gastadores, 1):
+                rank_gastador = i
+                rank_economizador = (total - i) + 1
+                
+                cursor.execute('''
+                    UPDATE deputados_despesas_legislatura_mensal 
+                    SET rankGastador = ?, rankEconomizador = ?
+                    WHERE id_registro = ?
+                ''', (rank_gastador, rank_economizador, id_reg))
+
+        conn.commit()
+        conn.close()
+        console.print(f"[bold green]✔ [despesas_mensais][/bold green] {len(condensado)} registros mensais inseridos.")
+    except Exception as e:
+        console.print(f"[bold red]Erro ao popular despesas mensais:[/bold red] {e}")
+
 
 

@@ -1,5 +1,8 @@
 import requests
 import time
+import csv
+import io
+from bs4 import BeautifulSoup
 
 def realizar_requisicao_com_retry(url, headers=None, params=None, max_retries=3, timeout=30, ignore_errors=None):
     """
@@ -63,26 +66,35 @@ def buscar_deputado_detalhado(id):
         print(f"Erro ao buscar detalhes do deputado {id}: {e}")
         return None
 
-def buscar_despesas(id_deputado, id_legislatura=None, itens=100, ordem='ASC', ordenar_por='ano'):
+def buscar_deputado_funcionarios():
     """
-    Busca as despesas de um deputado específico com parâmetros opcionais.
+    Consome a API da Câmara dos Deputados para obter a lista de funcionários dos deputados.
+    Extrai o idDeputado a partir do final da uriLotacao.
+    URL: http://dadosabertos.camara.leg.br/arquivos/funcionarios/json/funcionarios.json
     """
-    url = f"https://dadosabertos.camara.leg.br/api/v2/deputados/{id_deputado}/despesas"
+    url = "http://dadosabertos.camara.leg.br/arquivos/funcionarios/json/funcionarios.json"
     headers = {'accept': 'application/json'}
-    params = {
-        'itens': itens,
-        'ordem': ordem,
-        'ordenarPor': ordenar_por
-    }
     
-    if id_legislatura:
-        params['idLegislatura'] = id_legislatura
-
     try:
-        response = realizar_requisicao_com_retry(url, headers=headers, params=params)
-        return response.json()
+        response = realizar_requisicao_com_retry(url, headers=headers)
+        dados = response.json()
+        
+        # Processa cada funcionário para extrair o idDeputado da uriLotacao
+        if dados and 'dados' in dados:
+            for funcionario in dados['dados']:
+                uri = funcionario.get('uriLotacao')
+                if uri and isinstance(uri, str):
+                    # Pega a parte após a última barra
+                    partes = uri.rstrip('/').split('/')
+                    if partes:
+                        # Mantém o ID como string conforme solicitado
+                        funcionario['idDeputado'] = partes[-1]
+                else:
+                    funcionario['idDeputado'] = None
+        
+        return dados
     except Exception as e:
-        print(f"Erro ao buscar despesas do deputado {id_deputado}: {e}")
+        print(f"Erro ao buscar funcionários dos deputados: {e}")
         return None
 
 def buscar_todas_despesas_paginado(id_deputado, id_legislatura=None, itens=100):
@@ -411,5 +423,141 @@ def buscar_tipos_eventos(eventos_pontuacao=None):
         print(f"Erro ao buscar tipos de eventos: {e}")
         return None
 
+def buscar_funcionarios_salarios(anos_legislatura=None):
+    """
+    Faz web scraping no site da Câmara dos Deputados para obter os relatórios 
+    consolidados de remuneração mensal dos servidores, navegando por todos os anos e meses.
+    
+    Parâmetros:
+        anos_legislatura: lista de anos (str) para filtrar. Se None, baixa todos.
+    
+    Retorna todos os registros consolidados em um único dicionário com chave 'dados'.
+    """
+    url_base = "https://www2.camara.leg.br/transparencia/recursos-humanos/remuneracao/relatorios-consolidados-por-ano-e-mes"
+    
+    todos_registros = []
+    
+    try:
+        # 1. Buscar a lista de anos na página principal (com paginação)
+        print("Buscando lista de anos disponíveis...")
+        anos_links = []
+        url_pagina = url_base
+        
+        while url_pagina:
+            response = realizar_requisicao_com_retry(url_pagina, timeout=60)
+            soup = BeautifulSoup(response.text, 'lxml')
+            content = soup.select_one('#content-core')
+            
+            if not content:
+                print("Não foi possível encontrar o conteúdo da página.")
+                break
+            
+            ul = content.select_one('ul')
+            if ul:
+                for a in ul.find_all('a'):
+                    href = a.get('href', '')
+                    texto = a.text.strip()
+                    # Filtra apenas links de anos (texto numérico)
+                    if texto.isdigit():
+                        anos_links.append({'ano': texto, 'url': href})
+            
+            # Verifica se há próxima página
+            url_pagina = None
+            for a in content.find_all('a'):
+                if 'b_start' in str(a.get('href', '')) and 'Próximo' in a.text:
+                    url_pagina = a.get('href')
+                    break
+        
+        print(f"Anos encontrados no site: {[a['ano'] for a in anos_links]}")
+        
+        # Filtra apenas os anos da legislatura, se informado
+        if anos_legislatura:
+            anos_filtro = [str(a) for a in anos_legislatura]
+            anos_links = [a for a in anos_links if a['ano'] in anos_filtro]
+            print(f"Anos filtrados pela legislatura: {[a['ano'] for a in anos_links]}")
+        
+        # 2. Para cada ano, navegar e buscar os CSVs
+        for info_ano in anos_links:
+            ano = info_ano['ano']
+            url_ano = info_ano['url']
+            print(f"Processando ano {ano}...")
+            
+            try:
+                response_ano = realizar_requisicao_com_retry(url_ano, timeout=60)
+                soup_ano = BeautifulSoup(response_ano.text, 'lxml')
+                
+                # Buscar todos os links CSV na tabela
+                tabela = soup_ano.select_one('table')
+                if not tabela:
+                    print(f"  Tabela não encontrada para o ano {ano}. Pulando...")
+                    continue
+                
+                rows = tabela.find_all('tr')
+                for row in rows:
+                    # Pegar o texto do mês (primeira coluna)
+                    colunas = row.find_all('td')
+                    if not colunas:
+                        continue
+                    
+                    mes_texto = colunas[0].text.strip()
+                    
+                    # Encontrar o link CSV na linha
+                    csv_link = None
+                    for a in row.find_all('a'):
+                        href = a.get('href', '')
+                        texto_link = a.text.strip().upper()
+                        if texto_link == 'CSV' or href.lower().endswith('-csv'):
+                            csv_link = href
+                            break
+                    
+                    if not csv_link:
+                        continue
+                    
+                    print(f"  Baixando CSV: {mes_texto}...")
+                    
+                    try:
+                        response_csv = realizar_requisicao_com_retry(csv_link, timeout=120)
+                        if not response_csv:
+                            print(f"  Falha ao baixar CSV de {mes_texto}.")
+                            continue
+                        
+                        # Detectar encoding
+                        conteudo = response_csv.content.decode('utf-8', errors='replace')
+                        
+                        # Parse do CSV (separador ;)
+                        leitor = csv.DictReader(io.StringIO(conteudo), delimiter=';')
+                        
+                        for registro in leitor:
+                            registro['ano'] = ano
+                            registro['mes'] = mes_texto
+                            todos_registros.append(registro)
+                        
+                    except Exception as e_csv:
+                        print(f"  Erro ao processar CSV de {mes_texto}: {e_csv}")
+                        continue
+                        
+            except Exception as e_ano:
+                print(f"Erro ao processar ano {ano}: {e_ano}")
+                continue
+        
+        print(f"Scraping finalizado. Total de registros: {len(todos_registros)}")
+        return {"dados": todos_registros}
+        
+    except Exception as e:
+        print(f"Erro no scraping de salários dos funcionários: {e}")
+        if todos_registros:
+            return {"dados": todos_registros}
+        return None
+    
 
 
+
+
+
+
+
+
+
+
+    # Exemplo de teste: Busca gastos do deputado Arthur Lira (id 204379)
+  
