@@ -1,5 +1,6 @@
 from rich.console import Console
 from rich.table import Table
+from rich.panel import Panel
 
 from analise_estatistica import (
     calcular_desvio_padrao_gastos, 
@@ -31,6 +32,13 @@ from services import (
     agregar_frentes_deputados_por_ids,
     agregar_orgaos_deputados_por_ids
 )
+from database.connection import init_db
+from database.populate import (
+    popular_deputados, 
+    popular_despesas_legislatura, 
+    popular_despesas_totais_condensadas,
+    popular_estatisticas_gastos
+)
 
 console = Console()
 
@@ -39,14 +47,10 @@ import json
 
 # Parametros ----------------------------
 limite_legislaturas = 1 # Define quantas legislaturas a partir da última deve ser baixado.
-
-
-
-
-
 # ---------------------------------------
+
+
 def executar_processo():
-    from rich.panel import Panel
     console.print(Panel("[bold yellow]→ Iniciando processo de coleta de dados...[/bold yellow]", expand=False))
     
     # 0. Legislaturas Consolidadas
@@ -192,9 +196,22 @@ def executar_processo():
         campo_id="idDeputado"
     )
 
-
-def criar_tabelas():
-    pass
+def popular_tabelas():
+    console.print(Panel("[bold yellow]→ Populando tabela de deputados...[/bold yellow]", expand=False))
+    init_db()
+    
+    console.print("[bold cyan]→ Populando tabela de deputados...[/bold cyan]")
+    popular_deputados()
+    
+    console.print("[bold cyan]→ Populando despesas condensadas por legislatura...[/bold cyan]")
+    popular_despesas_legislatura()
+    
+    console.print("[bold cyan]→ Populando gastos totais condensados por deputado...[/bold cyan]")
+    popular_despesas_totais_condensadas()
+    
+    console.print("[bold cyan]→ Calculando e populando estatísticas de gastos...[/bold cyan]")
+    popular_estatisticas_gastos()
 
 if __name__ == "__main__":
-    executar_processo()
+    # executar_processo()
+    popular_tabelas()

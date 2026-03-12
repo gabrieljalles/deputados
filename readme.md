@@ -31,7 +31,7 @@
 [ ] Gasto total com assessores
 [ ] Comparar com os demais deputados
 
-# Criar troféus mensais / 3 meses 
+# Criar troféus mensais / 3 meses
 
 - São distribuídos todos os meses, todo mês recemeça a contagem.
   - (Não sei se vou adaptar para três meses ao invés de um)
@@ -65,3 +65,46 @@
 [ ] Criar selo da pec da blindagem positivo / negativo
 [ ] Criar selo da lei de aumento do salário generico positivo e negativo.
 [ ] Criar selo da pec da segurança pública.
+
+---
+
+# 🗄️ Informações estatísticas para se atentar
+
+Existem deputados que moram mais distantes do que outros. Preciso me atentar ao estado de cada deputado.
+
+# 🗄️ Estrutura do Banco de Dados (SQLite)
+
+O projeto utiliza um banco de dados SQLite (`backend/data/deputados.db`) para armazenar e processar os dados coletados da API da Câmara. Abaixo estão as tabelas principais:
+
+### 1. `deputados`
+
+Armazena as informações básicas e de identificação de cada parlamentar.
+
+- **Campos:** `id` (Texto), `nome`, `siglaPartido`, `siglaUf`, `idLegislatura` (Texto), `urlFoto`, `email`.
+
+### 2. `deputados_despesas_legislatura`
+
+Dados de gastos detalhados por categoria (tipo de despesa) para cada deputado na legislatura.
+
+- **Campos:** `idLegislatura`, `idDeputado`, `tipoDespesa`, `somaValorLiquido`, `rankGastador` (Ranking de quem mais gastou na categoria), `rankEconomizador` (Ranking de quem menos gastou na categoria).
+
+### 3. `deputados_despesas_legislatura_condensado`
+
+Visão consolidada do gasto total de cada deputado, somando todas as categorias.
+
+- **Campos:** `idLegislatura`, `idDeputado`, `valorTotal` (Soma de todas as despesas), `rankGastador` (Ranking geral de gastos), `rankEconomizador` (Ranking geral de economia).
+
+### 4. `estatisticas_gastos`
+
+Armazena cálculos estatísticos calculados sobre os gastos dos deputados para fins de comparação.
+
+- **Tipos de Estudo:**
+  - `MS`: Média Simples dos gastos por categoria.
+  - `DP`: Desvio Padrão dos gastos por categoria.
+- **Objetivo:** Identificar comportamentos atípicos e automatizar a criação de selos de economia.
+
+### 5. `despesas`
+
+Tabela técnica de apoio para registros brutos individuais de despesas (em expansão).
+
+- **Campos:** `id_despesa`, `id_deputado`, `tipo_despesa`, `valor_liquido`, etc.

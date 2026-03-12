@@ -2,6 +2,8 @@
 # Ignora arquivos dentro de raw, mas mantém a pasta e o .gitkeep
 raw/*
 !raw/.gitkeep
+data/*
+!data/.gitkeep
 __pycache__/
 *.py[cod]
 *$py.class
