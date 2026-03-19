@@ -2,8 +2,12 @@ import requests
 import time
 import csv
 import io
+import zipfile
+import os
+import json
 from bs4 import BeautifulSoup
 
+# Mecanismo de tentativa
 def realizar_requisicao_com_retry(url, headers=None, params=None, max_retries=3, timeout=30, ignore_errors=None):
     """
     Realiza uma requisição GET com mecanismo de retentativa em caso de erros temporários (como 504).
@@ -39,6 +43,7 @@ def realizar_requisicao_com_retry(url, headers=None, params=None, max_retries=3,
                 raise e
     return None
 
+# deputados.json (id deputado | legislatura | nome | siglaPartido | siglaUf | urlFoto)
 def buscar_deputados(idlegislatura):
     """
     Consome a API da Câmara dos Deputados para obter a lista de deputados.
@@ -52,6 +57,7 @@ def buscar_deputados(idlegislatura):
         print(f"Erro ao acessar a API: {e}")
         return None
 
+# deputado_detalhado.json (id deputado | nome civil | cpf | gabinete | situacao | condicao eleitoral | data inicio |  rede social
 def buscar_deputado_detalhado(id):
     """
     Consome a API da Câmara dos Deputados para obter detalhes de um deputado específico.
@@ -66,6 +72,7 @@ def buscar_deputado_detalhado(id):
         print(f"Erro ao buscar detalhes do deputado {id}: {e}")
         return None
 
+# deputado_funcionario.json (id deputado | nome do funcionário | cargo | data início)
 def buscar_deputado_funcionarios():
     """
     Consome a API da Câmara dos Deputados para obter a lista de funcionários dos deputados.
@@ -97,6 +104,7 @@ def buscar_deputado_funcionarios():
         print(f"Erro ao buscar funcionários dos deputados: {e}")
         return None
 
+# deputado_despesas.json ()
 def buscar_todas_despesas_paginado(id_deputado, id_legislatura=None, itens=100):
     """
     Busca TODAS as despesas de um deputado, percorrendo automaticamente todas as páginas da API.
@@ -141,6 +149,7 @@ def buscar_todas_despesas_paginado(id_deputado, id_legislatura=None, itens=100):
 
     return {"dados": todas_despesas}
 
+# 
 def buscar_todos_deputados_consolidado(formato="json"):
     """
     Faz o download do arquivo consolidado de todos os deputados em um formato específico.
@@ -190,6 +199,8 @@ def buscar_todas_legislaturas_consolidado(formato="json"):
         print(f"Erro ao baixar legislaturas consolidadas ({formato}): {e}")
         return None
 
+
+#eventos.json
 def buscar_eventos(data_inicio, data_fim, itens=100, ordem='DESC', ordenar_por='dataHoraInicio'):
     """
     Busca TODOS os eventos em um intervalo de datas, percorrendo automaticamente todas as páginas da API.
@@ -423,6 +434,79 @@ def buscar_tipos_eventos(eventos_pontuacao=None):
         print(f"Erro ao buscar tipos de eventos: {e}")
         return None
 
+def buscar_despesas_consolidadas(anos_legislatura=None):
+    """
+    Baixa os arquivos ZIP de despesas consolidadas por ano, extrai o JSON e remove o ZIP.
+    URL: https://www.camara.leg.br/cotas/Ano-{ano}.json.zip
+    """
+    if not anos_legislatura:
+        return None
+
+    diretorio_raw = os.path.join(os.path.dirname(__file__), "raw")
+    if not os.path.exists(diretorio_raw):
+        os.makedirs(diretorio_raw)
+
+    resultados = []
+
+    for ano in anos_legislatura:
+        url = f"https://www.camara.leg.br/cotas/Ano-{ano}.json.zip"
+        caminho_zip = os.path.join(diretorio_raw, f"Ano-{ano}.json.zip")
+        
+        print(f"Baixando despesas consolidadas de {ano}...")
+        try:
+            response = realizar_requisicao_com_retry(url, timeout=120)
+            if response:
+                with open(caminho_zip, 'wb') as f:
+                    f.write(response.content)
+                
+                # Extrair o ZIP
+                with zipfile.ZipFile(caminho_zip, 'r') as zip_ref:
+                    # O arquivo dentro costuma ter o mesmo nome do zip sem a extensão .zip
+                    arquivos_no_zip = zip_ref.namelist()
+                    zip_ref.extractall(diretorio_raw)
+                    print(f"  Extraído: {arquivos_no_zip}")
+                
+                # Renomear o arquivo extraído para despesas-{ano}.json
+                if arquivos_no_zip:
+                    caminho_original = os.path.join(diretorio_raw, arquivos_no_zip[0])
+                    caminho_novo = os.path.join(diretorio_raw, f"despesas-{ano}.json")
+                    
+                    # Se o nome já for o esperado, não faz nada, senão renomeia
+                    if caminho_original != caminho_novo:
+                        if os.path.exists(caminho_novo):
+                            os.remove(caminho_novo)
+                        os.rename(caminho_original, caminho_novo)
+                        print(f"  Renomeado de {arquivos_no_zip[0]} para despesas-{ano}.json")
+                
+                # Remover o ZIP
+                os.remove(caminho_zip)
+                print(f"  Arquivo ZIP removido. JSON mantido em {diretorio_raw}")
+                
+                # Opcional: Ler o conteúdo do arquivo renomeado
+                caminho_json = os.path.join(diretorio_raw, f"despesas-{ano}.json")
+                if os.path.exists(caminho_json):
+                    with open(caminho_json, 'r', encoding='utf-8') as f:
+                        dados = json.load(f)
+                        # Se os dados forem uma lista direta, envolvemos em {'dados': ...}
+                        if isinstance(dados, list):
+                            dados = {'dados': dados}
+                        resultados.append(dados)
+            else:
+                print(f"  Arquivo para o ano {ano} não encontrado (404).")
+        except Exception as e:
+            print(f"  Erro ao processar despesas de {ano}: {e}")
+
+    # Retorna o consolidado de todos os anos processados
+    consolidado = {"dados": []}
+    for r in resultados:
+        if 'dados' in r:
+            consolidado['dados'].extend(r['dados'])
+    
+    return consolidado
+
+
+
+# Não funciona | Não consigo linkar o deputado ao seu funcionário.
 def buscar_funcionarios_salarios(anos_legislatura=None):
     """
     Faz web scraping no site da Câmara dos Deputados para obter os relatórios 

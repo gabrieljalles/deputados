@@ -14,7 +14,8 @@ from api_service import (
     buscar_tipos_eventos,
     buscar_tipos_proposicoes,
     buscar_deputado_funcionarios,
-    buscar_funcionarios_salarios
+    buscar_funcionarios_salarios,
+    buscar_despesas_consolidadas
 )
 from parametros.p_eventos_pontuacoes import EVENTOS_PONTUACAO
 from file_handler import obter_dados_com_cache_por_arquivo, salvar_em_json, obter_dados_com_cache_por_id
@@ -34,7 +35,7 @@ from services import (
     agregar_frentes_deputados_por_ids,
     agregar_orgaos_deputados_por_ids
 )
-from database.connection import init_db
+from database.connection import init_db, limpar_banco
 from database.populate import (
     popular_deputados, 
     popular_despesas_legislatura, 
@@ -97,6 +98,13 @@ def executar_processo():
     funcionarios_salarios = obter_dados_com_cache_por_arquivo(
         "deputados_funcionarios_salarios.json",
         buscar_funcionarios_salarios,
+        anos_legislatura=anos_legislatura
+    )
+    
+    # 0.5 Despesas Consolidadas (ZIP/JSON)
+    despesas_consolidadas = obter_dados_com_cache_por_arquivo(
+        "despesas_consolidadas.json",
+        buscar_despesas_consolidadas,
         anos_legislatura=anos_legislatura
     )
     
@@ -226,6 +234,9 @@ def executar_processo():
 def popular_tabelas():
     console.print(Panel("[bold yellow]→ Populando tabela de deputados...[/bold yellow]", expand=False))
     init_db()
+    
+    console.print("[bold red]→ Limpando dados antigos do banco...[/bold red]")
+    limpar_banco()
     
     console.print("[bold cyan]→ Populando tabela de deputados...[/bold cyan]")
     popular_deputados()

@@ -100,5 +100,31 @@ def init_db():
     conn.close()
     print(f"Banco de dados inicializado em: {DB_PATH}")
 
+def limpar_banco():
+    """Remove todas as linhas de todas as tabelas do banco de dados."""
+    if not os.path.exists(DB_PATH):
+        print(f"Banco de dados não existe em {DB_PATH}")
+        return
+
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    # Busca todas as tabelas (exceto as de sistema do SQLite)
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';")
+    tabelas = cursor.fetchall()
+
+    try:
+        for (tabela,) in tabelas:
+            cursor.execute(f"DELETE FROM {tabela}")
+            print(f"Tabela {tabela} limpa.")
+        
+        conn.commit()
+        print("Todas as tabelas foram esvaziadas com sucesso.")
+    except sqlite3.Error as e:
+        print(f"Erro ao limpar o banco: {e}")
+        conn.rollback()
+    finally:
+        conn.close()
+
 if __name__ == "__main__":
     init_db()
