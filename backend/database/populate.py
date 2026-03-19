@@ -52,8 +52,8 @@ def popular_deputados():
         console.print(f"[bold red]Erro ao popular deputados:[/bold red] {e}")
 
 def popular_despesas_legislatura():
-    """Lê o arquivo raw/deputados_despesas.json, condensa e insere no banco."""
-    caminho_json = os.path.join(os.path.dirname(__file__), '..', 'raw', 'deputados_despesas.json')
+    """Lê o arquivo raw/despesas_consolidadas.json, condensa e insere no banco."""
+    caminho_json = os.path.join(os.path.dirname(__file__), '..', 'raw', 'despesas_consolidadas.json')
     
     if not os.path.exists(caminho_json):
         console.print(f"[bold red]Erro:[/bold red] Arquivo {caminho_json} não encontrado.")
@@ -82,10 +82,11 @@ def popular_despesas_legislatura():
         
         console.print(f"[yellow]→ Processando {len(dados_brutos)} registros brutos de despesas...[/yellow]")
         for d in dados_brutos:
-            # Pegamos o idLegislatura se existir, senão usamos 'N/A'
-            id_leg = str(d.get('idLegislatura', '57')) # Default 57 pois os dados parecem ser da atual
-            id_dep = str(d.get('idDeputadoDono') or d.get('idDeputado') or 'Desconhecido')
-            tipo = d.get('tipoDespesa', 'Outros')
+            # Pegamos o idLegislatura se existir, senão usamos '57'
+            id_leg = str(d.get('codigoLegislatura') or d.get('idLegislatura') or '57')
+            id_dep = str(d.get('numeroDeputadoID') or d.get('idDeputadoDono') or d.get('idDeputado') or 'Desconhecido')
+            # No arquivo consolidado (ZIP/JSON), o campo de categoria é 'descricao'
+            tipo = d.get('descricao') or d.get('tipoDespesa') or 'Outros'
             valor = float(d.get('valorLiquido', 0) or 0)
             
             chave = (id_leg, id_dep, tipo)
@@ -242,8 +243,8 @@ def popular_estatisticas_gastos():
         console.print(f"[bold red]Erro ao calcular estatísticas:[/bold red] {e}")
 
 def popular_despesas_mensais():
-    """Lê o arquivo raw/deputados_despesas.json, condensa por mês/ano e insere no banco."""
-    caminho_json = os.path.join(os.path.dirname(__file__), '..', 'raw', 'deputados_despesas.json')
+    """Lê o arquivo raw/despesas_consolidadas.json, condensa por mês/ano e insere no banco."""
+    caminho_json = os.path.join(os.path.dirname(__file__), '..', 'raw', 'despesas_consolidadas.json')
     
     if not os.path.exists(caminho_json):
         console.print(f"[bold red]Erro:[/bold red] Arquivo {caminho_json} não encontrado.")
@@ -271,9 +272,10 @@ def popular_despesas_mensais():
         
         console.print(f"[yellow]→ Processando {len(dados_brutos)} registros brutos para despesas mensais...[/yellow]")
         for d in dados_brutos:
-            id_leg = str(d.get('idLegislatura', '57'))
-            id_dep = str(d.get('idDeputadoDono') or d.get('idDeputado') or 'Desconhecido')
-            tipo = d.get('tipoDespesa', 'Outros')
+            id_leg = str(d.get('codigoLegislatura') or d.get('idLegislatura') or '57')
+            id_dep = str(d.get('numeroDeputadoID') or d.get('idDeputadoDono') or d.get('idDeputado') or 'Desconhecido')
+            # No arquivo consolidado (ZIP/JSON), o campo de categoria é 'descricao'
+            tipo = d.get('descricao') or d.get('tipoDespesa') or 'Outros'
             valor = float(d.get('valorLiquido', 0) or 0)
             ano = d.get('ano')
             mes = d.get('mes')

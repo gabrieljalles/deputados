@@ -254,5 +254,5 @@ def popular_tabelas():
     popular_estatisticas_gastos()
 
 if __name__ == "__main__":
-    executar_processo()
+    # executar_processo()
     popular_tabelas()

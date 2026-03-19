@@ -116,7 +116,7 @@ def limpar_banco():
     try:
         for (tabela,) in tabelas:
             cursor.execute(f"DELETE FROM {tabela}")
-            print(f"Tabela {tabela} limpa.")
+            print(f"🧹 Tabela {tabela} limpa.")
         
         conn.commit()
         print("Todas as tabelas foram esvaziadas com sucesso.")
