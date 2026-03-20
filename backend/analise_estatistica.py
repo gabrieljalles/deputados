@@ -1,5 +1,7 @@
 import json
 import statistics
+import os
+import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.widgets import Slider
 import matplotlib.ticker as ticker
@@ -124,14 +126,90 @@ def plotar_gastos_deputados(dados_despesas, ordenar_por='valor'):
     print(" Salvando também a versão estática completa em 'grafico_gastos_completo.png'")
     
     # Salva uma versão bem larga para ver tudo se necessário
+    os.makedirs('images', exist_ok=True)
+    nome_grafico_estatico = 'images/grafico_gastos_completo.png'
+    
     fig_salvar = plt.figure(figsize=(100, 10))
     ax_salvar = fig_salvar.add_subplot(111)
     ax_salvar.bar(labels, valores, color='skyblue')
     ax_salvar.axhline(media, color='red', linestyle='--')
     plt.xticks(rotation=90)
-    fig_salvar.savefig('grafico_gastos_completo.png')
+    fig_salvar.savefig(nome_grafico_estatico)
     plt.close(fig_salvar)
+    print(f" Versão completa salva em: {nome_grafico_estatico}")
 
+    plt.show()
+
+def plotar_histograma_zscore(dados_despesas, id_legislatura="desconhecida"):
+    """
+    Gera um histograma dos gastos totais por deputado e sobrepõe
+    as zonas de Z-score para identificar anomalias estatísticas.
+    Salva a imagem na pasta 'images'.
+    """
+    gastos_por_id = {}
+    
+    # Agrupamento de gastos por deputado para o histograma
+    if isinstance(dados_despesas, dict) and 'dados' not in dados_despesas:
+        for id_dep, conteudo in dados_despesas.items():
+            despesas = conteudo.get('dados', []) if isinstance(conteudo, dict) else conteudo
+            gastos_por_id[str(id_dep)] = sum(float(d.get('valorLiquido', 0)) for d in despesas if d.get('valorLiquido') is not None)
+    else:
+        despesas = dados_despesas.get('dados', []) if isinstance(dados_despesas, dict) else dados_despesas
+        for d in despesas:
+            id_dep = str(d.get('idDeputadoDono') or d.get('id'))
+            valor = d.get('valorLiquido', 0)
+            if id_dep and valor is not None:
+                gastos_por_id[id_dep] = gastos_por_id.get(id_dep, 0) + float(valor)
+
+    if not gastos_por_id:
+        print(" Sem dados para o histograma.")
+        return
+
+    valores = np.array(list(gastos_por_id.values()))
+    media = np.mean(valores)
+    desvio = np.std(valores)
+
+    # Configuração do gráfico
+    fig, ax = plt.subplots(figsize=(12, 7))
+    n, bins, patches = ax.hist(valores, bins=30, color='skyblue', edgecolor='black', alpha=0.7)
+
+    # Linhas de referência Z-score
+    ax.axvline(media, color='red', linestyle='solid', linewidth=2, label=f'Média (Z=0): R$ {media:,.2f}')
+    
+    # Z-scores 1, 2 e 3
+    cores_z = ['orange', 'darkorange', 'darkred']
+    for i in range(1, 4):
+        pos = media + (i * desvio)
+        neg = media - (i * desvio)
+        ax.axvline(pos, color=cores_z[i-1], linestyle='--', alpha=0.8, label=f'Z={i} (+{i} DP)')
+        if neg > 0:
+            ax.axvline(neg, color=cores_z[i-1], linestyle='--', alpha=0.3)
+
+    ax.set_title(f'Distribuição de Gastos e Z-Score - Leg. {id_legislatura} (Deteção de Outliers)')
+    ax.set_xlabel('Gasto Total do Deputado (R$)')
+    ax.set_ylabel('Frequência (Quantidade de Deputados)')
+    
+    # Formatação do eixo X
+    ax.xaxis.set_major_formatter(ticker.FuncFormatter(lambda x, p: format(int(x), ',').replace(',', '.')))
+    
+    ax.legend()
+    ax.grid(axis='y', linestyle=':', alpha=0.6)
+    
+    # Identificar quantos estão acima de Z=3
+    outliers = sum(1 for v in valores if (v - media) / desvio > 3)
+    print(f"\n--- Análise de Histograma (Legislatura: {id_legislatura}) ---")
+    print(f" Média: R$ {media:,.2f}")
+    print(f" Desvio Padrão: R$ {desvio:,.2f}")
+    print(f" Outliers Detectados (Z > 3): {outliers} deputado(s)")
+    
+    # Criar pasta images se não existir
+    os.makedirs('images', exist_ok=True)
+    
+    # Salvar a imagem com nome explicativo
+    nome_arquivo = f'images/histograma_deputados_zscore_{id_legislatura}.png'
+    fig.savefig(nome_arquivo)
+    print(f" Histograma salvo em: {nome_arquivo}")
+    
     plt.show()
 
 def calcular_desvio_padrao_gastos(dados_despesas):
@@ -256,17 +334,45 @@ def media_por_deputado(dados_despesas):
 
 if __name__ == "__main__":
     try:
-        with open('raw/deputados_despesas.json', 'r', encoding='utf-8') as f:
+        # Tenta carregar dados consolidados por legislatura se existirem, 
+        # ou usa o arquivo padrão deputados_despesas.json
+        caminho_despesas = 'raw/deputados_despesas.json'
+        
+        with open(caminho_despesas, 'r', encoding='utf-8') as f:
             dados = json.load(f)
             
-            print("\n--- Relatório Estatístico de Despesas ---")
-            calcular_soma_total_valor_liquido(dados)
-            media_por_deputado(dados)
-            calcular_desvio_padrao_gastos(dados)
+            # Agrupar despesas por Legislatura para gerar um Z-Score para cada uma
+            despesas_lista = []
+            if isinstance(dados, dict):
+                despesas_lista = dados.get('dados', [])
+            elif isinstance(dados, list):
+                despesas_lista = dados
+
+            # Dicionário para separar os dados por ID de Legislatura
+            por_legislatura = {}
+            for desp in despesas_lista:
+                leg_id = str(desp.get('idLegislatura', 'geral'))
+                if leg_id not in por_legislatura:
+                    por_legislatura[leg_id] = []
+                por_legislatura[leg_id].append(desp)
+
+            print(f"\n--- Relatório Estatístico de Despesas ---")
+            
+            # Processar cada legislatura individualmente
+            for leg_id, dados_leg in por_legislatura.items():
+                print(f"\n>>> Processando Legislatura: {leg_id}")
+                # Criamos um dicionário no formato que as funções esperam
+                contexto_leg = {'dados': dados_leg}
+                
+                calcular_soma_total_valor_liquido(contexto_leg)
+                media_por_deputado(contexto_leg)
+                plotar_histograma_zscore(contexto_leg, id_legislatura=leg_id)
+            
+            # Plotar o gráfico de barras interativo (geral ou você pode mover para o loop)
             plotar_gastos_deputados(dados)
             
     except FileNotFoundError:
-        print(" Arquivo 'raw/deputados_despesas.json' não encontrado.")
+        print(f" Arquivo '{caminho_despesas}' não encontrado.")
     except Exception as e:
         print(f" Erro ao processar arquivo: {e}")
 

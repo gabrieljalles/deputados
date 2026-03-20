@@ -37,6 +37,7 @@ from services import (
 )
 from database.connection import init_db, limpar_banco
 from database.populate import (
+    popular_deputado_detalhes,
     popular_deputados, 
     popular_despesas_legislatura, 
     popular_despesas_totais_condensadas,
@@ -240,6 +241,9 @@ def popular_tabelas():
     
     console.print("[bold cyan]→ Populando tabela de deputados...[/bold cyan]")
     popular_deputados()
+    
+    console.print("[bold cyan]→ Populando detalhes dos deputados...[/bold cyan]")
+    popular_deputado_detalhes()
     
     console.print("[bold cyan]→ Populando despesas condensadas por legislatura...[/bold cyan]")
     popular_despesas_legislatura()

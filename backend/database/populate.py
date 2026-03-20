@@ -51,6 +51,68 @@ def popular_deputados():
     except Exception as e:
         console.print(f"[bold red]Erro ao popular deputados:[/bold red] {e}")
 
+def popular_deputado_detalhes():
+    """Lê o arquivo raw/deputados_detalhados.json e insere os dados na tabela deputados_detalhes."""
+    caminho_json = os.path.join(os.path.dirname(__file__), '..', 'raw', 'deputados_detalhados.json')
+
+    if not os.path.exists(caminho_json):
+        console.print(f"[bold red]Erro:[/bold red] Arquivo {caminho_json} não encontrado.")
+        return
+
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+
+        cursor.execute("SELECT COUNT(*) FROM deputados_detalhes")
+        count = cursor.fetchone()[0]
+
+        if count > 0:
+            console.print(f"[bold blue]ℹ [deputados_detalhes][/bold blue] Já populada com {count} registros (ignorado).")
+            conn.close()
+            return
+
+        with open(caminho_json, 'r', encoding='utf-8') as f:
+            dados = json.load(f).get('dados', [])
+
+        for dep in dados:
+            status = dep.get('ultimoStatus') or {}
+            gabinete = status.get('gabinete') or {}
+            rede_social = dep.get('redeSocial') or []
+
+            cursor.execute('''
+                INSERT OR REPLACE INTO deputados_detalhes (
+                    id, nomeCivil, cpf, sexo, urlWebsite, redeSocial,
+                    dataNascimento, dataFalecimento, ufNascimento, municipioNascimento, escolaridade,
+                    situacao, condicaoEleitoral,
+                    gabineteNome, gabinetePredi, gabineteAndar, gabineteTelefone, gabineteEmail
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                str(dep.get('id')),
+                dep.get('nomeCivil'),
+                dep.get('cpf'),
+                dep.get('sexo'),
+                dep.get('urlWebsite'),
+                json.dumps(rede_social, ensure_ascii=False),
+                dep.get('dataNascimento'),
+                dep.get('dataFalecimento'),
+                dep.get('ufNascimento'),
+                dep.get('municipioNascimento'),
+                dep.get('escolaridade'),
+                status.get('situacao'),
+                status.get('condicaoEleitoral'),
+                gabinete.get('nome'),
+                gabinete.get('predio'),
+                gabinete.get('andar'),
+                gabinete.get('telefone'),
+                gabinete.get('email'),
+            ))
+
+        conn.commit()
+        conn.close()
+        console.print(f"[bold green]✔ [deputados_detalhes][/bold green] {len(dados)} novos registros inseridos.")
+    except Exception as e:
+        console.print(f"[bold red]Erro ao popular deputados_detalhes:[/bold red] {e}")
+
 def popular_despesas_legislatura():
     """Lê o arquivo raw/despesas_consolidadas.json, condensa e insere no banco."""
     caminho_json = os.path.join(os.path.dirname(__file__), '..', 'raw', 'despesas_consolidadas.json')

@@ -1,5 +1,6 @@
 import sqlite3
 import os
+from typing import Generator
 
 DB_PATH = os.path.join(os.path.dirname(__file__), '..', 'data', 'deputados.db')
 
@@ -94,11 +95,41 @@ def init_db():
         )
     ''')
 
-    # Outras tabelas podem ser adicionadas conforme você processe outros arquivos (ex: votações, eventos)
+    # Tabela de Detalhes dos Deputados
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS deputados_detalhes (
+            id TEXT PRIMARY KEY,
+            nomeCivil TEXT,
+            cpf TEXT,
+            sexo TEXT,
+            urlWebsite TEXT,
+            redeSocial TEXT,
+            dataNascimento TEXT,
+            dataFalecimento TEXT,
+            ufNascimento TEXT,
+            municipioNascimento TEXT,
+            escolaridade TEXT,
+            situacao TEXT,
+            condicaoEleitoral TEXT,
+            gabineteNome TEXT,
+            gabinetePredi TEXT,
+            gabineteAndar TEXT,
+            gabineteTelefone TEXT,
+            gabineteEmail TEXT
+        )
+    ''')
 
     conn.commit()
     conn.close()
     print(f"Banco de dados inicializado em: {DB_PATH}")
+
+def get_db() -> Generator:
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        yield conn
+    finally:
+        conn.close()
 
 def limpar_banco():
     """Remove todas as linhas de todas as tabelas do banco de dados."""
